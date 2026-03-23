@@ -6,7 +6,17 @@ set -euo pipefail
 
 # Configuration
 REPO_URL="https://github.com/TrustNetT/PMO.git"
-INSTALL_DIR="${PMO_INSTALL_DIR:-$HOME/PMO}"
+
+# Get installation directory from environment or use default
+# Can be set via: PMO_INSTALL_DIR=~/test/pmo bash install.sh
+if [[ -n "${PMO_INSTALL_DIR:-}" ]]; then
+    INSTALL_DIR="$PMO_INSTALL_DIR"
+else
+    INSTALL_DIR="$HOME/.pmo"
+fi
+
+# Expand ~ to $HOME for proper path handling
+INSTALL_DIR="${INSTALL_DIR/#\~/$HOME}"
 
 # Colors
 RED='\033[0;31m'
