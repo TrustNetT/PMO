@@ -1,20 +1,24 @@
 # PMO
 
-Public distribution repository for PMO.
+[Project description will go here - customize this file as needed]
+
+## Quick Start
+
+For installation and setup instructions, see [docs/guides/](docs/guides/).
+
+## Structure
+
+```
+├── docs/              # Documentation
+├── activity/          # Activity tracking (created per session)
+├── .github/           # GitHub integration and instructions
+└── README.md          # This file
+```
 
 ## Getting Started
 
-```bash
-# Clone this repository
-git clone https://github.com/TrustNetT/PMO.git
-cd PMO
-```
+1. Clone this repository
+2. Follow the guides in [docs/](docs/)
+3. Start tracking your work in `activity/`
 
-## Documentation
-
-For comprehensive documentation including setup, installation, and development information, please refer to the project's main repository.
-
-## Note
-
-This repository is automatically synchronized from the project's source repository on a regular basis.
-
+For more information, visit the documentation.
