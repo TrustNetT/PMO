@@ -1,22 +1,77 @@
 #!/bin/bash
 # install.sh - Install PMO (Project Management Office) locally
-# Usage: curl -sSL https://github.com/TrustNetT/PMO/raw/main/install.sh | bash
+# 
+# Usage (default - uses ~/GitProjects as root):
+#   curl -sSL https://raw.githubusercontent.com/TrustNetT/PMO/main/install.sh | bash
+#
+# Usage (local - creates GitProjects in current directory):
+#   cd ~/test && curl -sSL https://raw.githubusercontent.com/TrustNetT/PMO/main/install.sh | bash -- --local
+#
+# Usage (custom root directory):
+#   curl -sSL https://raw.githubusercontent.com/TrustNetT/PMO/main/install.sh | bash -- --root-dir ~/custom
 
 set -euo pipefail
 
 # Configuration
 REPO_URL="https://github.com/TrustNetT/PMO.git"
+CURRENT_DIR="$(pwd)"
+PMO_DIR=""
+USE_LOCAL=false
+ROOT_DIR=""
 
-# Get installation directory from environment or use default
-# Can be set via: PMO_INSTALL_DIR=~/test/pmo bash install.sh
-if [[ -n "${PMO_INSTALL_DIR:-}" ]]; then
-    INSTALL_DIR="$PMO_INSTALL_DIR"
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --local)
+            USE_LOCAL=true
+            shift
+            ;;
+        --root-dir)
+            ROOT_DIR="$2"
+            shift 2
+            ;;
+        --help)
+            echo "PMO Installer"
+            echo ""
+            echo "Usage: curl -sSL https://raw.githubusercontent.com/TrustNetT/PMO/main/install.sh | bash [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --local              Create GitProjects in current directory (e.g., ~/test/GitProjects)"
+            echo "  --root-dir PATH      Use PATH/GitProjects as root (default: ~/GitProjects)"
+            echo "  --help               Show this help message"
+            echo ""
+            echo "Examples:"
+            echo "  # Default: Uses ~/GitProjects and clones PMO here"
+            echo "  curl -sSL https://... | bash"
+            echo ""
+            echo "  # Local: Creates ~/test/GitProjects if run from ~/test"
+            echo "  cd ~/test && curl -sSL https://... | bash -- --local"
+            echo ""
+            echo "  # Custom: Uses ~/mybase/GitProjects"
+            echo "  curl -sSL https://... | bash -- --root-dir ~/mybase"
+            exit 0
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+# Determine where to put PMO (always in current directory)
+PMO_DIR="$CURRENT_DIR/PMO"
+
+# Determine GitProjects root
+if [[ "$USE_LOCAL" == true ]]; then
+    # Use current directory/GitProjects
+    GITPROJECTS_ROOT="$CURRENT_DIR/GitProjects"
+elif [[ -n "$ROOT_DIR" ]]; then
+    # Use custom root
+    ROOT_DIR="${ROOT_DIR/#\~/$HOME}"
+    GITPROJECTS_ROOT="$ROOT_DIR/GitProjects"
 else
-    INSTALL_DIR="$HOME/.pmo"
+    # Default to ~/GitProjects
+    GITPROJECTS_ROOT="$HOME/GitProjects"
 fi
-
-# Expand ~ to $HOME for proper path handling
-INSTALL_DIR="${INSTALL_DIR/#\~/$HOME}"
 
 # Colors
 RED='\033[0;31m'
@@ -53,37 +108,37 @@ if ! command -v git &> /dev/null; then
     exit 1
 fi
 
-# Check if installation directory already exists
-if [[ -d "$INSTALL_DIR" ]]; then
-    print_error "Installation directory already exists: $INSTALL_DIR"
+print_info "Installation Details:"
+echo "  Current directory: $CURRENT_DIR"
+echo "  PMO clone location: $PMO_DIR"
+echo "  GitProjects root: $GITPROJECTS_ROOT"
+echo ""
+
+# Check if PMO already cloned here
+if [[ -d "$PMO_DIR" ]]; then
+    print_error "PMO is already cloned in this directory: $PMO_DIR"
     read -p "Do you want to remove and reinstall? (y/n): " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         echo "Installation cancelled."
         exit 0
     fi
-    print_step "Removing existing installation..."
-    rm -rf "$INSTALL_DIR"
+    print_step "Removing existing PMO installation..."
+    rm -rf "$PMO_DIR"
 fi
 
-# Create installation directory
-print_step "Creating installation directory..."
-mkdir -p "$INSTALL_DIR"
-print_success "Directory created: $INSTALL_DIR"
-
-# Clone repository
+# Clone PMO repository into current directory
 print_step "Cloning PMO repository..."
-if git clone "$REPO_URL" "$INSTALL_DIR"; then
-    print_success "Repository cloned"
+if git clone "$REPO_URL" "$PMO_DIR"; then
+    print_success "Repository cloned to: $PMO_DIR"
 else
     print_error "Failed to clone repository"
-    rm -rf "$INSTALL_DIR"
     exit 1
 fi
 
 # Make scripts executable
 print_step "Setting up scripts..."
-cd "$INSTALL_DIR"
+cd "$PMO_DIR"
 chmod +x .scripts/* 2>/dev/null || true
 print_success "Scripts configured"
 
@@ -91,28 +146,42 @@ print_success "Scripts configured"
 print_step "Verifying repository configuration..."
 if git config --get remote.origin.url &>/dev/null; then
     REMOTE=$(git config --get remote.origin.url)
-    print_success "Git remote configured: $REMOTE"
+    print_success "Git remote: $REMOTE"
 else
     print_error "Git remote not configured properly"
     exit 1
 fi
+
+# Create GitProjects structure (WIP and Public repos)
+print_step "Setting up GitProjects structure..."
+WIP_PARENT="$GITPROJECTS_ROOT/../wip/priv"
+PUB_PARENT="$GITPROJECTS_ROOT/../wip/pub"
+
+mkdir -p "$GITPROJECTS_ROOT"
+mkdir -p "$WIP_PARENT"
+mkdir -p "$PUB_PARENT"
+print_success "GitProjects directories created"
 
 echo ""
 echo "=========================================="
 print_success "PMO Installation Complete!"
 echo "=========================================="
 echo ""
-echo "Installation directory: $INSTALL_DIR"
+echo "Installation Summary:"
+echo "  PMO directory: $PMO_DIR"
+echo "  GitProjects root: $GITPROJECTS_ROOT"
+echo "  WIP repos: $WIP_PARENT"
+echo "  Public repos: $PUB_PARENT"
 echo ""
 echo "Next steps:"
 echo "  1. Create a new project:"
-echo "     $INSTALL_DIR/.scripts/newproject -n ProjectName -t nodejs -o OrgName"
+echo "     $PMO_DIR/.scripts/newproject -n ProjectName -t nodejs -o OrgName"
 echo ""
 echo "  2. Check for PMO updates:"
-echo "     $INSTALL_DIR/.scripts/update-pmo --check"
+echo "     $PMO_DIR/.scripts/update-pmo --check"
 echo ""
 echo "  3. View documentation:"
-echo "     cat $INSTALL_DIR/docs/DUAL_REPO_SCRIPTS.md"
+echo "     cat $PMO_DIR/docs/DUAL_REPO_SCRIPTS.md"
 echo ""
 echo "For more information, visit:"
 echo "  https://github.com/TrustNetT/PMO"
