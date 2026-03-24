@@ -120,6 +120,41 @@ if ! command -v git &> /dev/null; then
     exit 1
 fi
 
+# Check if VS Code is installed, install if missing
+if ! command -v code &> /dev/null; then
+    print_info "VS Code not found. Installing..."
+    if [[ -f /etc/os-release ]]; then
+        . /etc/os-release
+        case "$ID" in
+            ubuntu|debian)
+                sudo apt-get update
+                sudo apt-get install -y code
+                ;;
+            fedora|rhel)
+                sudo dnf install -y code
+                ;;
+            arch)
+                sudo pacman -S --noconfirm code
+                ;;
+            *)
+                print_error "Unsupported distribution. Please install VS Code manually."
+                exit 1
+                ;;
+        esac
+        if command -v code &> /dev/null; then
+            print_success "VS Code installed"
+        else
+            print_error "Failed to install VS Code"
+            exit 1
+        fi
+    else
+        print_error "Cannot detect OS. Please install VS Code manually."
+        exit 1
+    fi
+else
+    print_success "VS Code is installed"
+fi
+
 print_info "Installation Details:"
 echo "  Current directory: $CURRENT_DIR"
 echo "  GitProjects root: $GITPROJECTS_ROOT"
