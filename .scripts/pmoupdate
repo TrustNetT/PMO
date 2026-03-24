@@ -214,16 +214,19 @@ if [[ "$SHOW_VERSION" == "true" ]]; then
 fi
 
 echo ""
-print_info "Checking for $PROJECT_NAME updates"
-echo "  Local installation: $INSTALL_DIR"
+print_info "Checking for updates"
+echo "════════════════════════════════════"
+echo "  Project: $PROJECT_NAME"
+echo "  Local version: $LOCAL_VERSION"
 echo "  Repository: $REPO_URL"
+echo "════════════════════════════════════"
 echo ""
 
 # Create temporary directory for downloading
 TEMP_DIR=$(mktemp -d)
 trap "rm -rf $TEMP_DIR" EXIT
 
-# Download remote package.json
+# Download remote version info
 print_step "Downloading remote version info..."
 
 # Use 15-second timeout (increased from 10 to handle slow networks better)
@@ -264,8 +267,10 @@ fi
 
 print_success "Version info retrieved"
 echo ""
+echo "════════════════════════════════════"
 echo "  Local version:  $LOCAL_VERSION"
 echo "  Remote version: $REMOTE_VERSION"
+echo "════════════════════════════════════"
 echo ""
 
 # Compare versions
