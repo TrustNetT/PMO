@@ -267,7 +267,7 @@ if [[ $COMPARISON_RESULT -eq 0 ]]; then
     else
         print_success "Your installation is up to date!"
         echo ""
-        echo "Tip: Use 'update-${PROJECT_NAME_LOWER} --force' to reinstall even when versions match."
+        echo "Tip: Use 'pmoupdate --force' to reinstall even when versions match."
         exit 0
     fi
 elif [[ $COMPARISON_RESULT -eq 1 ]]; then
