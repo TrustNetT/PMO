@@ -181,22 +181,29 @@ trap "rm -rf $TEMP_DIR" EXIT
 
 # Download remote package.json
 print_step "Downloading remote version info..."
-if curl -sSL "$REPO_RAW_URL/package.json" -o "$TEMP_DIR/package.json" 2>/dev/null; then
+
+# Use shorter timeout (10 seconds) to avoid hanging
+# Try package.json first, fall back to VERSION file
+CURL_TIMEOUT=10
+REMOTE_VERSION=""
+
+if timeout $CURL_TIMEOUT curl -sSL "$REPO_RAW_URL/package.json" -o "$TEMP_DIR/package.json" 2>/dev/null; then
     REMOTE_VERSION=$(get_json_version "$TEMP_DIR/package.json")
-    if [[ -z "$REMOTE_VERSION" || "$REMOTE_VERSION" == "unknown" ]]; then
-        # Fallback: try to download VERSION file
-        if curl -sSL "$REPO_RAW_URL/VERSION" -o "$TEMP_DIR/VERSION" 2>/dev/null; then
-            REMOTE_VERSION=$(get_file_version "$TEMP_DIR/VERSION")
-        fi
-    fi
-else
-    # Fallback: try VERSION file
-    if curl -sSL "$REPO_RAW_URL/VERSION" -o "$TEMP_DIR/VERSION" 2>/dev/null; then
+fi
+
+# If package.json didn't have version, try VERSION file
+if [[ -z "$REMOTE_VERSION" || "$REMOTE_VERSION" == "unknown" ]]; then
+    if timeout $CURL_TIMEOUT curl -sSL "$REPO_RAW_URL/VERSION" -o "$TEMP_DIR/VERSION" 2>/dev/null; then
         REMOTE_VERSION=$(get_file_version "$TEMP_DIR/VERSION")
     else
-        print_error "Unable to check for updates. Please verify internet connection."
+        print_error "Unable to check for updates (network timeout). Please verify internet connection or try --force to skip version check."
         exit 1
     fi
+fi
+
+if [[ -z "$REMOTE_VERSION" || "$REMOTE_VERSION" == "unknown" ]]; then
+    print_error "Unable to determine remote version. Aborting."
+    exit 1
 fi
 
 print_success "Version info retrieved"
