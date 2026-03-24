@@ -127,17 +127,28 @@ if ! command -v code &> /dev/null; then
         . /etc/os-release
         case "$ID" in
             ubuntu|debian)
-                sudo apt-get update
-                sudo apt-get install -y code
+                sudo apt update
+                sudo apt install -y wget gpg
+                wget -qO- https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/ms_vscode.gpg
+                echo "deb [arch=amd64 signed-by=/usr/share/keyrings/ms_vscode.gpg] https://packages.microsoft.com/repos/code stable main" | sudo tee /etc/apt/sources.list.d/vscode.list
+                sudo apt update
+                sudo apt install -y code
                 ;;
             fedora|rhel)
+                sudo rpm --import https://packages.microsoft.com/keys/microsoft.asc
+                echo '[vscode]
+name=Visual Studio Code
+baseurl=https://packages.microsoft.com/yumrepos/vscode
+enabled=1
+gpgcheck=1
+gpgkey=https://packages.microsoft.com/keys/microsoft.asc' | sudo tee /etc/yum.repos.d/vscode.repo > /dev/null
                 sudo dnf install -y code
                 ;;
             arch)
                 sudo pacman -S --noconfirm code
                 ;;
             *)
-                print_error "Unsupported distribution. Please install VS Code manually."
+                print_error "Unsupported distribution. Please install VS Code manually from https://code.visualstudio.com"
                 exit 1
                 ;;
         esac
@@ -148,7 +159,7 @@ if ! command -v code &> /dev/null; then
             exit 1
         fi
     else
-        print_error "Cannot detect OS. Please install VS Code manually."
+        print_error "Cannot detect OS. Please install VS Code manually from https://code.visualstudio.com"
         exit 1
     fi
 else
