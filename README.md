@@ -26,12 +26,12 @@ After installation, PMO scripts are automatically added to your PATH:
 
 - **`pmoproject`** — Create new projects with proper directory structure and configurations
   - Usage: `pmoproject -n ProjectName -t nodejs -o OrgName`
-  - See `./scripts/pmoproject --help` for all options
+  - See `pmoproject --help` for all options
 
 - **`pmoupdate`** — Check for and update your PMO installation
   - Usage: `pmoupdate --check` (check without installing)
   - Usage: `pmoupdate` (check and install if newer)
-  - See `./scripts/pmoupdate --help` for all options
+  - See `pmoupdate --help` for all options
 
 ### Basic Workflow
 
@@ -100,9 +100,15 @@ PMO/
 
 - **[Project Workflow & Repository Structure](docs/PROJECT_WORKFLOW.md)** — Understand the dual-repository pattern (WIP private, public distribution), how to organize project components, and the publish workflow
 
-### Setup & Configuration
+### Using pmoproject
 
-- **[Creating a New Project](docs/guides/NEWPROJECT_CONFIG.md)** — Step-by-step guide for scaffolding and configuring a new project in PMO
+Create new projects using the `pmoproject` command:
+
+```bash
+pmoproject -n ProjectName -t nodejs -o OrgName
+```
+
+Run `pmoproject --help` for all available options and project types.
 
 ### Activity Tracking
 
