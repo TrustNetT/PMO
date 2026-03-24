@@ -96,6 +96,13 @@ OPTIONS:
   
   -h, --help                Show this help message
 
+ADVANCED OPTIONS (HIDDEN - Use with caution):
+  -e, --extract <org>/<repo>  Restore project from private GitHub WIP repo
+  -a, --abandon <path>        Permanently remove project (DESTRUCTIVE)
+  -s, --show                  Display advanced options documentation
+
+See 'pmoproject -s' for advanced options documentation.
+
 ENVIRONMENT VARIABLES (All optional):
   PMO_ROOT                  Root directory for symlinks
                             Default: ~/GitProjects
@@ -199,6 +206,397 @@ print_warning() {
     echo -e "${YELLOW}⚠ $1${NC}"
 }
 
+# ============================================================================
+# ADVANCED FUNCTIONS (Hidden options: -e, -a, -s)
+# ============================================================================
+
+show_advanced_help() {
+    cat << 'EOF'
+═══════════════════════════════════════════════════════════
+           PMOPROJECT - ADVANCED OPTIONS
+═══════════════════════════════════════════════════════════
+
+These are hidden/advanced options not shown in regular help.
+Use with caution as some are destructive operations.
+
+───────────────────────────────────────────────────────────
+📦 EXTRACT - Restore Project from GitHub
+───────────────────────────────────────────────────────────
+
+Usage:
+  pmoproject -e <org>/<repo>
+  pmoproject --extract <org>/<repo>
+
+Description:
+  Restores a project from a private GitHub WIP repository.
+  This is useful for:
+  - Recovering abandoned projects
+  - Setting up project on a new machine
+  - Restoring from backup
+
+What it does:
+  1. Clones the private WIP repository from GitHub
+  2. Reads project configuration (version, metadata)
+  3. Creates/connects the public repository
+  4. Sets up symlinks in GMOProjects/{ProjectName}/ folder
+
+Examples:
+  # Extract project from organization
+  pmoproject -e TrustNetT/MyApp-wip
+  
+  # Extract using default organization (from config)
+  pmoproject -e MyApp-wip
+
+───────────────────────────────────────────────────────────
+🗑️  ABANDON - Remove Project (DESTRUCTIVE)
+───────────────────────────────────────────────────────────
+
+Usage:
+  pmoproject -a <project-directory>
+  pmoproject --abandon <project-directory>
+
+Description:
+  Permanently removes project from local machine and deletes
+  public GitHub repository while preserving private repo.
+  
+  ⚠️  THIS IS DESTRUCTIVE AND CANNOT BE UNDONE!
+
+What it does:
+  1. Deletes the public GitHub repository (remote)
+  2. Keeps the private GitHub WIP repository (backup)
+  3. Deletes the entire local project directory
+
+Requires:
+  - Must type 'DELETE' to confirm
+  - Project must have VERSION file or configuration
+
+Examples:
+  # Abandon project in current location
+  pmoproject -a ~/GitProjects/MyApp.prj
+  
+  # Abandon project with relative path
+  pmoproject -a ./OldProject.prj
+
+Recovery:
+  After abandoning, you can restore with:
+  pmoproject -e <org>/<repo-wip>
+
+───────────────────────────────────────────────────────────
+📋 SHOW - Display This Help
+───────────────────────────────────────────────────────────
+
+Usage:
+  pmoproject -s
+  pmoproject --show
+
+Description:
+  Displays this advanced options documentation.
+
+───────────────────────────────────────────────────────────
+⚠️  SAFETY NOTES
+───────────────────────────────────────────────────────────
+
+1. ABANDON is destructive - always confirm you have the
+   correct project before proceeding
+
+2. Private repositories are preserved as backup when using
+   ABANDON - you can always extract them later
+
+3. EXTRACT will fail if local directory already exists -
+   this prevents accidental overwrites
+
+4. Always commit and push changes before using ABANDON
+
+5. These options are hidden to prevent accidental use
+
+───────────────────────────────────────────────────────────
+
+For regular options, use:
+  pmoproject --help
+
+═══════════════════════════════════════════════════════════
+EOF
+    exit 0
+}
+
+# Extract (restore) project from private GitHub repository
+extract_project() {
+    local repo_spec="$1"
+    
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    echo "         EXTRACTING PROJECT FROM GITHUB"
+    echo "═══════════════════════════════════════════════════════════"
+    echo ""
+    
+    # Parse repo_spec (can be org/repo or just repo name)
+    local org_name=""
+    local repo_name=""
+    
+    if [[ "$repo_spec" == *"/"* ]]; then
+        org_name="${repo_spec%%/*}"
+        repo_name="${repo_spec##*/}"
+    else
+        org_name="$GITHUB_ORG"
+        repo_name="$repo_spec"
+    fi
+    
+    print_info "WIP Repository: $org_name/$repo_name"
+    echo ""
+    
+    # Check if WIP repository exists on GitHub
+    if ! gh repo view "${org_name}/${repo_name}" &>/dev/null; then
+        print_error "Repository ${org_name}/${repo_name} not found on GitHub"
+        exit 1
+    fi
+    
+    # Determine directories based on PMO structure
+    local git_projects_dir="$PMO_ROOT"
+    local wip_priv_dir="$WIP_PARENT"
+    local wip_pub_dir="$PUB_PARENT"
+    
+    local wip_dir="$wip_priv_dir/$repo_name"
+    
+    # Check if WIP directory already exists
+    if [[ -d "$wip_dir" ]]; then
+        print_error "WIP directory $wip_dir already exists"
+        exit 1
+    fi
+    
+    # Create base directories
+    mkdir -p "$git_projects_dir"
+    mkdir -p "$wip_priv_dir"
+    mkdir -p "$wip_pub_dir"
+    
+    # Clone the WIP repository
+    print_info "Cloning WIP repository to $wip_dir..."
+    
+    if git clone "git@github.com:${org_name}/${repo_name}.git" "$wip_dir"; then
+        print_success "WIP Repository cloned successfully"
+    else
+        print_error "Failed to clone repository"
+        exit 1
+    fi
+    
+    cd "$wip_dir" || exit 1
+    
+    # Read VERSION to get project name
+    local project_name=""
+    local public_name=""
+    
+    if [[ -f "VERSION" ]]; then
+        print_info "Reading project configuration..."
+        # Get project name from directory structure
+        if [[ -d "PMO" || -d "*/package.json" ]]; then
+            # Derive from repo name (remove -wip suffix)
+            if [[ "$repo_name" == *"-wip" ]]; then
+                public_name="${repo_name%-wip}"
+            else
+                public_name="$repo_name"
+            fi
+        fi
+        print_success "Configuration found"
+    else
+        print_warning "No VERSION file found. Using defaults."
+        if [[ "$repo_name" == *"-wip" ]]; then
+            public_name="${repo_name%-wip}"
+        else
+            public_name="$repo_name"
+        fi
+    fi
+    
+    # Capitalize first letter for project name
+    project_name="$(echo "${public_name:0:1}" | tr '[:lower:]' '[:upper:]')${public_name:1}"
+    
+    local project_dir="$git_projects_dir/${project_name}.prj"
+    local public_dir="$wip_pub_dir/${public_name}"
+    
+    echo ""
+    print_info "Project structure:"
+    echo "  Project Name:    $project_name"
+    echo "  Project Folder:  $project_dir"
+    echo "  WIP Directory:   $wip_dir"
+    echo "  Public Name:     $public_name"
+    echo "  Public Dir:      $public_dir"
+    echo ""
+    
+    # Create project folder
+    if [[ ! -d "$project_dir" ]]; then
+        mkdir -p "$project_dir"
+    fi
+    
+    # Create symlinks in project folder
+    cd "$project_dir" || exit 1
+    
+    local wip_link="$project_dir/${repo_name}"
+    local pub_link="$project_dir/${public_name}"
+    
+    if [[ ! -L "$wip_link" ]]; then
+        ln -s "$wip_dir" "$wip_link"
+        print_success "Created symlink: $repo_name -> $wip_dir"
+    else
+        print_info "Symlink $repo_name already exists"
+    fi
+    
+    # Clone or initialize public repository
+    print_info "Setting up public repository..."
+    
+    if gh repo view "${GITHUB_USER}/${public_name}" &>/dev/null; then
+        print_info "Public repository exists on GitHub, cloning..."
+        if [[ ! -d "$public_dir" ]]; then
+            if git clone "git@github.com:${GITHUB_USER}/${public_name}.git" "$public_dir"; then
+                print_success "Public repository cloned"
+            else
+                print_error "Failed to clone public repository"
+                mkdir -p "$public_dir"
+                cd "$public_dir" && git init
+                git remote add origin "git@github.com:${GITHUB_USER}/${public_name}.git"
+            fi
+        else
+            print_info "Public directory already exists"
+        fi
+    else
+        # Initialize empty public directory
+        mkdir -p "$public_dir"
+        cd "$public_dir" || exit 1
+        git init
+        git remote add origin "git@github.com:${GITHUB_USER}/${public_name}.git"
+        print_success "Public directory initialized"
+    fi
+    
+    # Create symlink to public repo
+    if [[ ! -L "$pub_link" ]]; then
+        ln -s "$public_dir" "$pub_link"
+        print_success "Created symlink: $public_name -> $public_dir"
+    fi
+    
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    print_success "PROJECT EXTRACTED SUCCESSFULLY!"
+    echo "═══════════════════════════════════════════════════════════"
+    echo ""
+    
+    print_info "Project Structure:"
+    print_success "  Project Folder:    $project_dir"
+    print_success "  WIP Repository:    $wip_dir"
+    print_success "  Public Repository: $public_dir"
+    echo ""
+    
+    print_info "Symlinks:"
+    print_success "  $project_dir/$repo_name -> $wip_dir"
+    print_success "  $project_dir/$public_name -> $public_dir"
+    echo ""
+    
+    print_info "Next steps:"
+    echo "  1. Navigate to project:"
+    print_success "     cd $project_dir/$repo_name"
+    echo ""
+    echo "  2. Review activity/status/current-context.md"
+    echo ""
+    echo "  3. Publish to public repo (if needed):"
+    print_success "     ./tools/publish-${public_name}"
+    echo ""
+    
+    exit 0
+}
+
+# Abandon (delete) project - DESTRUCTIVE
+abandon_project() {
+    local project_dir="$1"
+    
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    echo "              ⚠️  DESTRUCTIVE OPERATION  ⚠️"
+    echo "═══════════════════════════════════════════════════════════"
+    echo ""
+    
+    # Resolve symlink if needed
+    if [[ -L "$project_dir" ]]; then
+        project_dir="$(readlink "$project_dir")"
+    fi
+    
+    # Check if project directory exists
+    if [[ ! -d "$project_dir" ]]; then
+        print_error "Directory $project_dir does not exist"
+        exit 1
+    fi
+    
+    # Get project name from directory
+    local project_name=$(basename "$project_dir")
+    
+    # Find WIP directory within project.prj folder
+    local wip_dir=""
+    for link in "$project_dir"/*-wip; do
+        if [[ -L "$link" ]]; then
+            wip_dir=$(readlink "$link")
+            break
+        fi
+    done
+    
+    if [[ -z "$wip_dir" ]]; then
+        print_error "No WIP repository found in $project_dir"
+        exit 1
+    fi
+    
+    cd "$wip_dir" || exit 1
+    
+    # Check if it's a git repository
+    if [[ ! -d ".git" ]]; then
+        print_error "$wip_dir is not a git repository"
+        exit 1
+    fi
+    
+    # Get repository info from remotes
+    local private_repo=$(git config --get remote.origin.url 2>/dev/null || echo "unknown")
+    
+    echo ""
+    print_warning "This operation will:"
+    echo ""
+    echo "  1. Delete entire local directory: $project_dir"
+    echo "  2. Keep private GitHub repository: $private_repo"
+    echo ""
+    print_warning "THIS CANNOT BE UNDONE!"
+    echo ""
+    
+    read -p "$(echo -e ${BOLD}${RED}Type 'DELETE' to confirm: ${RESET})" confirm
+    echo ""
+    
+    if [[ "$confirm" != "DELETE" ]]; then
+        echo ""
+        print_success "Abandon cancelled. No changes made."
+        exit 0
+    fi
+    
+    print_info "Starting abandon operation..."
+    echo ""
+    
+    # Delete local project directory
+    print_info "Deleting local project directory..."
+    if rm -rf "$project_dir"; then
+        print_success "Local directory deleted: $project_dir"
+    else
+        print_error "Failed to delete local directory"
+        exit 1
+    fi
+    
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    print_success "PROJECT ABANDONED SUCCESSFULLY!"
+    echo "═══════════════════════════════════════════════════════════"
+    echo ""
+    
+    print_success "Summary:"
+    echo "  ✓ Local files deleted"
+    echo "  ✓ Private repository preserved: $private_repo"
+    echo ""
+    
+    print_info "To restore this project, use:"
+    print_success "  pmoproject -e <org>/$(basename $wip_dir)"
+    echo ""
+    
+    exit 0
+}
+
 # Parse arguments
 parse_args() {
     while [[ $# -gt 0 ]]; do
@@ -242,6 +640,15 @@ parse_args() {
                 else
                     shift
                 fi
+                ;;
+            -e|--extract)
+                extract_project "$2"
+                ;;
+            -a|--abandon)
+                abandon_project "$2"
+                ;;
+            -s|--show)
+                show_advanced_help
                 ;;
             -h|--help)
                 print_usage
