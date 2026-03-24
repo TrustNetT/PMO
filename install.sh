@@ -1,6 +1,9 @@
 #!/bin/bash
 # install.sh - Install PMO (Project Management Office) locally
 # 
+# This script ONLY clones PMO into GitProjects
+# It does NOT create or touch ~/wip/ (production repository storage)
+#
 # Usage (default - uses ~/GitProjects as root):
 #   curl -sSL https://raw.githubusercontent.com/TrustNetT/PMO/main/install.sh | bash -s
 #
@@ -36,27 +39,22 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: curl -sSL https://raw.githubusercontent.com/TrustNetT/PMO/main/install.sh | bash -s [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --local              Create GitProjects in current directory (e.g., ~/test/GitProjects/PMO)"
-            echo "  --root-dir PATH      Use PATH/GitProjects/PMO as install location (default: ~/GitProjects/PMO)"
+            echo "  --local              Create in current directory (e.g., ~/test/GitProjects/PMO)"
+            echo "  --root-dir PATH      Use PATH/GitProjects/PMO (default: ~/GitProjects/PMO)"
             echo "  --help               Show this help message"
             echo ""
             echo "Examples:"
-            echo "  # Default: Uses ~/GitProjects/PMO and ~/wip for repos"
+            echo "  # Default: Install to ~/GitProjects/PMO"
             echo "  curl -sSL https://... | bash -s"
             echo ""
-            echo "  # Local: Creates ./GitProjects/PMO if run from ~/test"
+            echo "  # Local: Install to ./GitProjects/PMO from current directory"
             echo "  cd ~/test && curl -sSL https://... | bash -s -- --local"
             echo ""
-            echo "  # Custom: Uses ~/mybase/GitProjects/PMO"
-            echo "  curl -sSL https://... | bash -s -- --root-dir ~/mybase"
+            echo "  # Custom: Install to ~/custom/GitProjects/PMO"
+            echo "  curl -sSL https://... | bash -s -- --root-dir ~/custom"
             echo ""
-            echo "Directory Structure Created:"
-            echo "  ./"
-            echo "  ├── GitProjects/"
-            echo "  │   └── PMO/               ← PMO scripts and tools"
-            echo "  └── wip/"
-            echo "      ├── priv/              ← Private WIP repositories"
-            echo "      └── pub/               ← Public distribution repos"
+            echo "NOTE: This script does NOT create ~/wip/ directories."
+            echo "      Only PMO is installed to GitProjects."
             exit 0
             ;;
         *)
@@ -65,9 +63,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Determine GitProjects root and WIP parent directory
+# Determine GitProjects root and BASE_DIR (for wip location in --local mode)
 if [[ "$USE_LOCAL" == true ]]; then
-    # Use current directory for base
+    # Use current directory
     BASE_DIR="$CURRENT_DIR"
     GITPROJECTS_ROOT="$CURRENT_DIR/GitProjects"
 elif [[ -n "$ROOT_DIR" ]]; then
@@ -84,8 +82,8 @@ fi
 # PMO goes INSIDE GitProjects
 PMO_DIR="$GITPROJECTS_ROOT/PMO"
 
-# WIP repos go parallel to GitProjects (same parent)
-WIP_PARENT="$BASE_DIR/wip"
+# WIP directories (only created in --local mode)
+WIP_ROOT="$BASE_DIR/wip"
 
 # Colors
 RED='\033[0;31m'
@@ -124,13 +122,11 @@ fi
 
 print_info "Installation Details:"
 echo "  Current directory: $CURRENT_DIR"
-echo "  Base directory: $BASE_DIR"
 echo "  GitProjects root: $GITPROJECTS_ROOT"
 echo "  PMO location: $PMO_DIR"
-echo "  WIP repos: $WIP_PARENT"
 echo ""
 
-# Check if PMO is already cloned
+# Check if PMO is already installed
 if [[ -d "$PMO_DIR" ]]; then
     print_error "PMO is already installed: $PMO_DIR"
     read -p "Do you want to remove and reinstall? (y/n): " -n 1 -r
@@ -144,9 +140,17 @@ if [[ -d "$PMO_DIR" ]]; then
 fi
 
 # Create GitProjects directory structure
-print_step "Creating GitProjects structure..."
+print_step "Creating GitProjects directory..."
 mkdir -p "$GITPROJECTS_ROOT"
-print_success "GitProjects created: $GITPROJECTS_ROOT"
+print_success "Directory created: $GITPROJECTS_ROOT"
+
+# Create WIP structure (ONLY in --local mode, never in production)
+if [[ "$USE_LOCAL" == true ]]; then
+    print_step "Creating WIP repository structure..."
+    mkdir -p "$WIP_ROOT/priv"
+    mkdir -p "$WIP_ROOT/pub"
+    print_success "WIP structure created"
+fi
 
 # Clone PMO repository into GitProjects
 print_step "Cloning PMO repository..."
@@ -173,31 +177,33 @@ else
     exit 1
 fi
 
-# Create WIP structure (parallel to GitProjects)
-print_step "Setting up WIP repository structure..."
-mkdir -p "$WIP_PARENT/priv"
-mkdir -p "$WIP_PARENT/pub"
-print_success "WIP directories created"
-
 echo ""
 echo "=========================================="
 print_success "PMO Installation Complete!"
 echo "=========================================="
 echo ""
 echo "Installation Summary:"
-echo "  Base directory: $BASE_DIR"
-echo "  GitProjects root: $GITPROJECTS_ROOT"
 echo "  PMO location: $PMO_DIR"
-echo "  WIP repos (private): $WIP_PARENT/priv"
-echo "  WIP repos (public): $WIP_PARENT/pub"
+echo "  Git remote: $REMOTE"
 echo ""
-echo "Directory Structure:"
-echo "  $BASE_DIR/"
-echo "  ├── GitProjects/"
-echo "  │   └── PMO/               ← You are here"
-echo "  └── wip/"
-echo "      ├── priv/              ← Private WIP repositories"
-echo "      └── pub/               ← Public distribution repos"
+
+if [[ "$USE_LOCAL" == true ]]; then
+    echo "Directory Structure (Isolated Test Environment):"
+    echo "  $CURRENT_DIR/"
+    echo "  ├── GitProjects/"
+    echo "  │   └── PMO/               ← You are here"
+    echo "  └── wip/"
+    echo "      ├── priv/              ← Test private repos"
+    echo "      └── pub/               ← Test public repos"
+else
+    echo "Directory Structure:"
+    echo "  ~/GitProjects/"
+    echo "  └── PMO/               ← You are here"
+    echo ""
+    echo "IMPORTANT:"
+    echo "  • ~/wip/ is production data - NEVER touched by installer"
+    echo "  • Repository projects are linked via newproject script"
+fi
 echo ""
 echo "Next steps:"
 echo "  1. Create a new project:"
@@ -207,7 +213,7 @@ echo "  2. Check for PMO updates:"
 echo "     $PMO_DIR/.scripts/update-pmo --check"
 echo ""
 echo "  3. View documentation:"
-echo "     cat $PMO_DIR/docs/DUAL_REPO_SCRIPTS.md"
+echo "     cat $PMO_DIR/README.md"
 echo ""
 echo "For more information, visit:"
 echo "  https://github.com/TrustNetT/PMO"
