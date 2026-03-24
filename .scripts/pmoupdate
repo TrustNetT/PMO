@@ -182,27 +182,39 @@ trap "rm -rf $TEMP_DIR" EXIT
 # Download remote package.json
 print_step "Downloading remote version info..."
 
-# Use shorter timeout (10 seconds) to avoid hanging
+# Use 15-second timeout (increased from 10 to handle slow networks better)
 # Try package.json first, fall back to VERSION file
-CURL_TIMEOUT=10
+CURL_TIMEOUT=15
 REMOTE_VERSION=""
 
+# Try package.json
 if timeout $CURL_TIMEOUT curl -sSL "$REPO_RAW_URL/package.json" -o "$TEMP_DIR/package.json" 2>/dev/null; then
     REMOTE_VERSION=$(get_json_version "$TEMP_DIR/package.json")
+    if [[ -n "$REMOTE_VERSION" && "$REMOTE_VERSION" != "unknown" ]]; then
+        print_success "Version info retrieved (from package.json)"
+    fi
 fi
 
 # If package.json didn't have version, try VERSION file
 if [[ -z "$REMOTE_VERSION" || "$REMOTE_VERSION" == "unknown" ]]; then
+    print_info "Trying VERSION file..."
     if timeout $CURL_TIMEOUT curl -sSL "$REPO_RAW_URL/VERSION" -o "$TEMP_DIR/VERSION" 2>/dev/null; then
         REMOTE_VERSION=$(get_file_version "$TEMP_DIR/VERSION")
+        if [[ -n "$REMOTE_VERSION" && "$REMOTE_VERSION" != "unknown" ]]; then
+            print_success "Version info retrieved (from VERSION file)"
+        fi
     else
-        print_error "Unable to check for updates (network timeout). Please verify internet connection or try --force to skip version check."
+        print_error "Timeout connecting to GitHub (exceeded ${CURL_TIMEOUT}s). Please check your internet connection."
+        print_info "Tip: Try 'pmoupdate --force' to skip version check and reinstall anyway"
         exit 1
     fi
 fi
 
 if [[ -z "$REMOTE_VERSION" || "$REMOTE_VERSION" == "unknown" ]]; then
-    print_error "Unable to determine remote version. Aborting."
+    print_error "Unable to determine remote version after trying both package.json and VERSION"
+    print_info "Remote files tried:"
+    echo "  - $REPO_RAW_URL/package.json"
+    echo "  - $REPO_RAW_URL/VERSION"
     exit 1
 fi
 
