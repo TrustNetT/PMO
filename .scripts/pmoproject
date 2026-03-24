@@ -1,0 +1,1024 @@
+#!/bin/bash
+
+# newproject - Create a new PMO project with dual-repo structure
+# This script creates both private WIP and public distribution repos following PMO patterns
+# Features: Configuration file support, project type templates, GitHub integration
+#
+# CONFIGURATION: ~/jcscripts or set environment variables
+#   organization: GitHub organization for private WIP repos
+#   username: GitHub username for public repos
+#   default_type: Default project type (monorepo, nodejs, go, python, docs, etc)
+#
+# Usage: newproject [OPTIONS]
+# Examples:
+#   newproject -n PMO -t nodejs -o TrustNetT
+#   newproject -n Blog -o Ingasti --type monorepo
+#   PMO_ROOT=~/work newproject -n MyApp -o MyOrg
+#
+# CONFIGURATION SETUP:
+#   newproject --config              # Interactive configuration setup
+#   man ~/.jcscripts                 # View configuration file
+
+set -euo pipefail
+
+# Configuration - All paths are fully configurable via environment variables
+# Users can customize by setting before running: export PMO_ROOT=/path/to/projects
+PMO_ROOT="${PMO_ROOT:-$HOME/GitProjects}"
+PMO_HOME="${PMO_HOME:-$HOME/.PMO}"          # Location of system scripts and templates
+WIP_PARENT="${WIP_PARENT:-$HOME/wip/priv}"
+PUB_PARENT="${PUB_PARENT:-$HOME/wip/pub}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Configuration file
+CONFIG_FILE="$HOME/.jcscripts"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Defaults (from config file or env)
+PROJECT_NAME=""
+PROJECT_NAME_LOWER=""
+PROJECT_NAME_UPPER=""
+PROJECT_TYPE=""
+GITHUB_ORG=""
+GITHUB_USER=""
+LOCAL_ONLY=false
+FORCE_RECREATE=false
+CONFIGURE=false
+REFACTOR=false
+REFACTOR_PATH=""
+
+# Load configuration from ~/.jcscripts if it exists
+if [[ -f "$CONFIG_FILE" ]]; then
+    # Simple YAML parsing
+    GITHUB_ORG=$(grep "^organization:" "$CONFIG_FILE" | cut -d' ' -f2- 2>/dev/null || echo "")
+    GITHUB_USER=$(grep "^username:" "$CONFIG_FILE" | cut -d' ' -f2- 2>/dev/null || echo "")
+    PROJECT_TYPE=$(grep "^default_type:" "$CONFIG_FILE" | cut -d' ' -f2- 2>/dev/null || echo "monorepo")
+fi
+
+# Fallback defaults
+PROJECT_TYPE="${PROJECT_TYPE:-nodejs}"
+GITHUB_ORG="${GITHUB_ORG:-TrustNetT}"
+
+# Functions
+print_usage() {
+    cat << EOF
+Usage: newproject [OPTIONS]
+
+Create a new PMO project with dual-repo structure (private WIP + public distribution).
+AUTOMATICALLY creates GitHub repositories using gh CLI (SSH configured).
+
+OPTIONS:
+  -n, --name NAME           Project name (REQUIRED, as you want it capitalized)
+                            Example: PMO, Blog, MailHub, WebMail
+  
+  -t, --type TYPE           Project type (if not set, uses default from config)
+                            Options: nodejs, go, python, docs, monorepo, script, rust, docker
+  
+  -o, --org ORG             GitHub organization (if not set, uses default from config)
+                            Example: TrustNetT, Ingasti, jcgarcia
+  
+  -u, --user USERNAME       GitHub username (optional, used for public repos)
+  
+  --local-only              Create local repos only, don't create on GitHub
+                            (Advanced: for testing or when gh CLI unavailable)
+  
+  --force                   Delete and recreate GitHub repos without prompting
+  
+  --config                  Interactively manage configuration
+                            Saves to: $CONFIG_FILE
+  
+  -r, --refactor [PATH]     Refactor existing project to new PMO structure
+  
+  -h, --help                Show this help message
+
+ENVIRONMENT VARIABLES (All optional):
+  PMO_ROOT                  Root directory for symlinks
+                            Default: ~/GitProjects
+  
+  WIP_PARENT                Parent directory for private WIP repos
+                            Default: ~/wip/priv
+  
+  PUB_PARENT                Parent directory for public repos
+                            Default: ~/wip/pub
+
+CONFIGURATION FILE (~/.jcscripts):
+  
+  The configuration file stores project defaults in YAML format:
+  
+    organization: TrustNetT          # Default GitHub organization
+    username: jcgarcia              # Default GitHub username
+    default_type: nodejs            # Default project type
+  
+  Use 'newproject --config' to set up interactively, or edit manually.
+
+PROJECT TYPES:
+  
+  nodejs    - Node.js monorepo (Vite + pnpm workspace)
+  go        - Go microservice with Chi router
+  python    - Python project with pipenv or venv
+  monorepo  - Generic monorepo with component directories
+  docs      - Documentation project (no components)
+  script    - Single-file script project
+  docker    - Container-based project
+
+PREREQUISITES (Must be configured before using newproject):
+  ✓ gh (GitHub CLI) installed: https://cli.github.com
+  ✓ gh authenticated: run 'gh auth login' if not done
+  ✓ SSH keys configured: run 'ssh-keygen' if needed
+  ✓ GitHub account with organization access
+  ✓ git configured: git config user.name && git config user.email
+
+EXAMPLES:
+  # Create PMO project (uses defaults from config or GITHUB_ORG env)
+  newproject -n PMO -t nodejs
+  
+  # Create Blog in Ingasti organization
+  newproject -n Blog -t nodejs -o Ingasti
+  
+  # Create MailHub (Go service) in TrustNetT
+  newproject -n MailHub -t go -o TrustNetT
+  
+  # Create with all custom paths
+  PMO_ROOT=~/work WIP_PARENT=~/dev/private PUB_PARENT=~/dev/public \\
+    newproject -n MyApp -o MyOrg
+  
+  # Set up configuration
+  newproject --config
+  
+  # Refactor existing project
+  newproject -r ~/projects/OldProject
+
+DIRECTORY STRUCTURE CREATED:
+  
+  GitHub Repositories:
+    https://github.com/{ORG}/{NAME}-wip             ← Private WIP (source)
+    https://github.com/{ORG}/{NAME}                 ← Public distribution
+  
+  Physical Storage (using defaults):
+    ~/wip/priv/{name}-wip/              ← Git repo (development)
+    ↓ symlink
+    ~/GitProjects/{NAME}.prj/           ← Project folder with symlinks
+      ├── {name}-wip/                   ← Working directory (edit here)
+      └── {NAME}/                       ← Public working directory
+    
+    ~/wip/pub/{NAME}/                   ← Git repo (published)
+
+WORKFLOW:
+  1. Script creates both repos on GitHub (private + public)
+  2. Local repos initialized and linked via symlinks in .prj folder
+  3. Edit in: ~/GitProjects/{NAME}.prj/{name}-wip/
+  4. Commit: git add . && git commit
+  5. Publish: ./tools/publish-{name-lower}
+  6. Push: cd ~/GitProjects/{NAME}.prj/{NAME} && git push origin main
+
+MORE INFO:
+  - See: $PMO_ROOT/.PMO/docs/
+  - Config: cat $CONFIG_FILE
+
+EOF
+}
+
+print_error() {
+    echo -e "${RED}ERROR: $1${NC}" >&2
+}
+
+print_success() {
+    echo -e "${GREEN}✓ $1${NC}"
+}
+
+print_info() {
+    echo -e "${BLUE}ℹ $1${NC}"
+}
+
+print_warning() {
+    echo -e "${YELLOW}⚠ $1${NC}"
+}
+
+# Parse arguments
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -n|--name)
+                PROJECT_NAME="$2"
+                # Store both lowercase (for directories) and uppercase (for repo names)
+                PROJECT_NAME_LOWER=$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | tr -d '_' | tr '_' '-')
+                PROJECT_NAME_UPPER="$PROJECT_NAME"
+                shift 2
+                ;;
+            -t|--type)
+                PROJECT_TYPE="$2"
+                shift 2
+                ;;
+            -o|--org)
+                GITHUB_ORG="$2"
+                shift 2
+                ;;
+            -u|--user)
+                GITHUB_USER="$2"
+                shift 2
+                ;;
+            --local-only)
+                LOCAL_ONLY=true
+                shift
+                ;;
+            --force)
+                FORCE_RECREATE=true
+                shift
+                ;;
+            --config)
+                CONFIGURE=true
+                shift
+                ;;
+            -r|--refactor)
+                REFACTOR=true
+                if [[ $# -gt 1 && ! "$2" =~ ^- ]]; then
+                    REFACTOR_PATH="$2"
+                    shift 2
+                else
+                    shift
+                fi
+                ;;
+            -h|--help)
+                print_usage
+                exit 0
+                ;;
+            *)
+                print_error "Unknown option: $1"
+                print_usage
+                exit 1
+                ;;
+        esac
+    done
+}
+
+# Configuration management
+manage_config() {
+    print_info "PMO Configuration Setup"
+    echo ""
+    
+    if [[ -f "$CONFIG_FILE" ]]; then
+        echo "Current configuration:"
+        cat "$CONFIG_FILE"
+        echo ""
+    fi
+    
+    read -p "GitHub organization (for private WIP repos) [$GITHUB_ORG]: " input_org
+    GITHUB_ORG="${input_org:-$GITHUB_ORG}"
+    
+    read -p "GitHub username (for public repos) [$GITHUB_USER]: " input_user
+    GITHUB_USER="${input_user:-$GITHUB_USER}"
+    
+    read -p "Default project type (nodejs|go|python|monorepo|docs|script) [${PROJECT_TYPE:-nodejs}]: " input_type
+    PROJECT_TYPE="${input_type:-${PROJECT_TYPE:-nodejs}}"
+    
+    # Create configuration file
+    cat > "$CONFIG_FILE" << EOF
+# PMO Configuration
+# Automatically created by newproject --config
+
+organization: $GITHUB_ORG
+username: "$GITHUB_USER"
+default_type: $PROJECT_TYPE
+EOF
+    
+    print_success "Configuration saved to $CONFIG_FILE"
+    echo ""
+    echo "To use these defaults automatically, just run:"
+    echo "  newproject -n ProjectName"
+    echo ""
+    exit 0
+}
+
+# Validate inputs
+validate_inputs() {
+    if [[ -z "$PROJECT_NAME" ]]; then
+        print_error "Project name is required (-n or --name)"
+        print_usage
+        exit 1
+    fi
+
+    if [[ -z "$GITHUB_ORG" ]]; then
+        print_error "GitHub organization is required (-o or --org), or set in ~/.jcscripts"
+        print_info "Run 'newproject --config' to set defaults"
+        exit 1
+    fi
+
+    if [[ ! "$PROJECT_NAME_LOWER" =~ ^[a-z0-9_-]+$ ]]; then
+        print_error "Project name must contain only alphanumeric, hyphens, or underscores"
+        exit 1
+    fi
+
+    # Check for gh CLI (required unless --local-only)
+    if [[ $LOCAL_ONLY == false ]]; then
+        if ! command -v gh &> /dev/null; then
+            print_error "GitHub CLI (gh) not found and required for automatic repo creation"
+            print_error "Install with: curl -sS https://webi.sh/gh | sh"
+            print_error "Or use --local-only to skip GitHub creation (not recommended)"
+            exit 1
+        fi
+
+        # Check if gh is authenticated
+        if ! gh auth status &> /dev/null; then
+            print_error "GitHub CLI not authenticated"
+            print_error "Run: gh auth login"
+            exit 1
+        fi
+
+        print_success "gh CLI authenticated and ready"
+    fi
+
+    # Verify git is configured
+    if ! git config user.name > /dev/null; then
+        print_error "Git user.name not configured. Run: git config --global user.name 'Your Name'"
+        exit 1
+    fi
+
+    if ! git config user.email > /dev/null; then
+        print_error "Git user.email not configured. Run: git config --global user.email 'you@example.com'"
+        exit 1
+    fi
+}
+
+# Create directory structure
+create_directories() {
+    print_info "Creating directory structure..."
+
+    # Create parent directories if they don't exist
+    mkdir -p "$WIP_PARENT"
+    mkdir -p "$PUB_PARENT"
+    mkdir -p "$PMO_ROOT"
+
+    # Create WIP directory (always lowercase with hyphens)
+    if [[ -d "$WIP_PARENT/${PROJECT_NAME_LOWER}-wip" ]]; then
+        print_error "WIP directory already exists: $WIP_PARENT/${PROJECT_NAME_LOWER}-wip"
+        exit 1
+    fi
+
+    mkdir -p "$WIP_PARENT/${PROJECT_NAME_LOWER}-wip"
+    print_success "Created WIP directory: $WIP_PARENT/${PROJECT_NAME_LOWER}-wip"
+
+    # Create public directory (use original capitalization)
+    if [[ -d "$PUB_PARENT/$PROJECT_NAME_UPPER" ]]; then
+        print_error "Public directory already exists: $PUB_PARENT/$PROJECT_NAME_UPPER"
+        exit 1
+    fi
+
+    mkdir -p "$PUB_PARENT/$PROJECT_NAME_UPPER"
+    print_success "Created public directory: $PUB_PARENT/$PROJECT_NAME_UPPER"
+}
+
+# Initialize git repos
+init_git_repos() {
+    print_info "Initializing git repositories..."
+
+    # Initialize WIP repo
+    cd "$WIP_PARENT/${PROJECT_NAME_LOWER}-wip"
+    git init
+    git config user.name "$(git config user.name || echo 'Developer')"
+    git config user.email "$(git config user.email || echo 'dev@example.com')"
+    print_success "Initialized WIP git repo"
+
+    # Create README for WIP
+    cat > README.md << EOF
+# ${PROJECT_NAME} (WIP)
+
+This is the private development repository for $PROJECT_NAME.
+
+**Do not edit the public repository directly.** All changes should be made here and published via the \`publish-${PROJECT_NAME_LOWER}\` script.
+
+## Structure
+
+- \`docs/\` - Documentation
+- \`src/\` - Source code
+- \`tests/\` - Tests
+- \`tools/\` - Build and deployment scripts
+- \`activity/\` - Development activity tracking (not published)
+
+## Workflow
+
+1. **Develop here**: \`$PMO_ROOT/${PROJECT_NAME_LOWER}-wip/\`
+2. **Commit changes**: \`git add . && git commit\`
+3. **Publish to public**: \`./tools/publish-${PROJECT_NAME_LOWER}\`
+4. **Push to GitHub**: \`cd $PMO_ROOT/$PROJECT_NAME_UPPER && git push\`
+
+## Important
+
+- All edits happen in this WIP repo
+- The public repo is generated from this one
+- Do NOT commit secrets (.env files, API keys, etc.)
+- The publish script automatically excludes: .env*, node_modules, .git, *.log
+
+EOF
+
+    git add README.md
+    git commit -m "Initial commit: ${PROJECT_NAME} WIP setup"
+    print_success "Created initial WIP commit"
+
+    # Initialize public repo
+    cd "$PUB_PARENT/$PROJECT_NAME_UPPER"
+    git init
+    git config user.name "$(git config user.name || echo 'Developer')"
+    git config user.email "$(git config user.email || echo 'dev@example.com')"
+    
+    # Create README for public
+    cat > README.md << EOF
+# ${PROJECT_NAME_UPPER}
+
+Public distribution repository for $PROJECT_NAME.
+
+## Getting Started
+
+\`\`\`bash
+# Clone this repository
+git clone https://github.com/$GITHUB_ORG/${PROJECT_NAME_UPPER}.git
+cd ${PROJECT_NAME_UPPER}
+\`\`\`
+
+## Documentation
+
+For comprehensive documentation including setup, installation, and development information, please refer to the project's main repository.
+
+## Note
+
+This repository is automatically synchronized from the project's source repository on a regular basis.
+
+EOF
+
+    git add README.md
+    git commit -m "Initial commit: ${PROJECT_NAME_UPPER} public distribution"
+    print_success "Created initial public commit"
+}
+
+# Create symlinks
+create_symlinks_fn() {
+    print_info "Creating project folder structure..."
+
+    # Create project folder with .prj suffix
+    PROJECT_FOLDER="$PMO_ROOT/${PROJECT_NAME_UPPER}.prj"
+    
+    if [[ -d "$PROJECT_FOLDER" ]]; then
+        print_error "Project folder already exists: $PROJECT_FOLDER"
+        exit 1
+    fi
+
+    mkdir -p "$PROJECT_FOLDER"
+    print_success "Created project folder: $PROJECT_FOLDER"
+
+    # Create WIP symlink inside project folder
+    ln -s "$WIP_PARENT/${PROJECT_NAME_LOWER}-wip" "$PROJECT_FOLDER/${PROJECT_NAME_LOWER}-wip"
+    print_success "Created symlink: $PROJECT_FOLDER/${PROJECT_NAME_LOWER}-wip"
+
+    # Create public symlink inside project folder
+    ln -s "$PUB_PARENT/$PROJECT_NAME_UPPER" "$PROJECT_FOLDER/$PROJECT_NAME_UPPER"
+    print_success "Created symlink: $PROJECT_FOLDER/$PROJECT_NAME_UPPER"
+}
+
+# Create GitHub repos
+create_github_repos() {
+    if [[ $LOCAL_ONLY == true ]]; then
+        print_info "Skipping GitHub repo creation (--local-only specified)"
+        print_warning "WARNING: GitHub repos not created. You'll need to create them manually:"
+        print_warning "  - $GITHUB_ORG/${PROJECT_NAME_LOWER}-wip (private)"
+        print_warning "  - $GITHUB_ORG/$PROJECT_NAME_UPPER (public)"
+        return 0
+    fi
+
+    print_info "Creating GitHub repositories..."
+
+    # Helper function to check if repo exists
+    repo_exists() {
+        local repo_name="$1"
+        gh repo view "$GITHUB_ORG/$repo_name" &>/dev/null
+        return $?
+    }
+
+    # Helper function to create or recreate repo
+    create_or_recreate_repo() {
+        local repo_name="$1"
+        local repo_source="$2"
+        local is_private="$3"
+        local visibility_flag="--public"
+        
+        [[ "$is_private" == "true" ]] && visibility_flag="--private"
+
+        # Check if repo already exists
+        if repo_exists "$repo_name"; then
+            print_warning "⚠️  Repository already exists: $GITHUB_ORG/$repo_name"
+            
+            # Handle based on FORCE_RECREATE flag
+            if [[ $FORCE_RECREATE == false ]]; then
+                read -p "Delete and recreate? (y/n) " -n 1 -r
+                echo
+                if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                    print_info "Skipping repo creation: $GITHUB_ORG/$repo_name"
+                    return 0
+                fi
+            else
+                print_info "Force recreating repo (--force flag set)"
+            fi
+            
+            print_info "Deleting existing repo: $GITHUB_ORG/$repo_name"
+            gh repo delete "$GITHUB_ORG/$repo_name" --confirm || {
+                print_error "Failed to delete repo. Skipping."
+                return 1
+            }
+        fi
+
+        # Create the repo
+        print_info "Creating repo: $GITHUB_ORG/$repo_name"
+        if gh repo create "$GITHUB_ORG/$repo_name" \
+            $visibility_flag \
+            --source="$repo_source" \
+            --remote=origin \
+            --push 2>&1; then
+            print_success "Created and pushed repo: $GITHUB_ORG/$repo_name"
+            return 0
+        else
+            print_error "Failed to create $repo_name on GitHub"
+            print_warning "You can create it manually at:"
+            if [[ "$is_private" == "true" ]]; then
+                print_warning "  https://github.com/new?owner=$GITHUB_ORG&name=$repo_name&private=true"
+            else
+                print_warning "  https://github.com/new?owner=$GITHUB_ORG&name=$repo_name&public=true"
+            fi
+            return 1
+        fi
+    }
+
+    # Create WIP repo (PRIVATE)
+    create_or_recreate_repo "${PROJECT_NAME_LOWER}-wip" "$WIP_PARENT/${PROJECT_NAME_LOWER}-wip" "true"
+    WIP_RESULT=$?
+
+    # Create public repo (PUBLIC)
+    create_or_recreate_repo "$PROJECT_NAME_UPPER" "$PUB_PARENT/$PROJECT_NAME_UPPER" "false"
+    PUB_RESULT=$?
+
+    # CRITICAL: Verify .git exists in public repo after creation
+    # gh repo create might re-initialize the directory
+    if [ ! -d "$PUB_PARENT/$PROJECT_NAME_UPPER/.git" ]; then
+        print_warning "⚠️  Public repo .git directory missing after GitHub creation"
+        print_info "Re-initializing public repo..."
+        cd "$PUB_PARENT/$PROJECT_NAME_UPPER"
+        git init
+        git config user.name "$(git config user.name || echo 'Developer')"
+        git config user.email "$(git config user.email || echo 'dev@example.com')"
+        git add -A
+        git commit -m "Restore: Public repo git initialization"
+        git remote add origin "https://github.com/$GITHUB_ORG/$PROJECT_NAME_UPPER.git"
+        git push -u origin main || git push -u origin master || true
+        print_success "Public repo re-initialized"
+    fi
+
+    # Always succeed if local setup is done (GitHub is secondary)
+    if [[ $WIP_RESULT -eq 0 && $PUB_RESULT -eq 0 ]]; then
+        print_success "GitHub repos created and initial commits pushed"
+        return 0
+    else
+        print_warning "⚠️  Local project setup complete. Some GitHub repos may need manual setup."
+        return 0
+    fi
+}
+
+# Create activity folder structure and documentation
+create_activity_structure() {
+    print_info "Creating activity folder structure..."
+
+    ACTIVITY_DIR="$WIP_PARENT/${PROJECT_NAME_LOWER}-wip/activity"
+
+    mkdir -p "$ACTIVITY_DIR/status"
+    mkdir -p "$ACTIVITY_DIR/sprints"
+    mkdir -p "$ACTIVITY_DIR/vibe"
+    mkdir -p "$ACTIVITY_DIR/snapshots"
+    mkdir -p "$ACTIVITY_DIR/planning"
+
+    # Create current-context.md
+    cat > "$ACTIVITY_DIR/status/current-context.md" << EOF
+# Current Context - $PROJECT_NAME
+
+**Project**: $PROJECT_NAME  
+**Type**: $PROJECT_TYPE  
+**GitHub Org**: $GITHUB_ORG  
+**Created**: $(date -u +'%Y-%m-%d %H:%M:%S UTC')  
+**Status**: Initial setup complete
+
+## Session Overview
+
+- **Objective**: Set up $PROJECT_NAME project structure
+- **Progress**: Dual-repo structure, GitHub repos, symlinks created
+
+## Next Actions
+
+1. [ ] Review project structure
+2. [ ] Install dependencies (if applicable)
+3. [ ] Set up development environment
+4. [ ] Create initial implementation
+5. [ ] Test locally
+6. [ ] Commit and publish first release
+
+## Repository Links
+
+- **Private WIP**: https://github.com/$GITHUB_ORG/${PROJECT_NAME_LOWER}-wip
+- **Public**: https://github.com/$GITHUB_ORG/$PROJECT_NAME_UPPER
+- **Local project folder**: $PMO_ROOT/${PROJECT_NAME_UPPER}.prj/
+- **Local WIP**: $PMO_ROOT/${PROJECT_NAME_UPPER}.prj/${PROJECT_NAME_LOWER}-wip/
+- **Local Public**: $PMO_ROOT/${PROJECT_NAME_UPPER}.prj/$PROJECT_NAME_UPPER/
+
+## Git Workflow
+
+1. Make changes in: \`$PMO_ROOT/${PROJECT_NAME_UPPER}.prj/${PROJECT_NAME_LOWER}-wip/\`
+2. Commit: \`git add . && git commit -m "message"\`
+3. Push: \`git push origin main\`
+4. Publish to public: \`./tools/publish-${PROJECT_NAME_LOWER}\`
+5. Go to public: \`cd $PMO_ROOT/${PROJECT_NAME_UPPER}.prj/$PROJECT_NAME_UPPER\`
+6. Push public: \`git push origin main\`
+
+## Notes
+
+- All development happens in the WIP repo
+- Public repo is auto-synced via publish script
+- Never edit public repo directly
+- Secrets (.env, keys) are excluded from public
+
+EOF
+
+    # Create AI instructions template
+    cat > "$ACTIVITY_DIR/vibe/ai-instructions.md" << EOF
+---
+name: $PROJECT_NAME-project
+description: "Project-specific guidance for $PROJECT_NAME development"
+applyTo:
+  - "**/*.js"
+  - "**/*.jsx"
+  - "**/*.ts"
+  - "**/*.tsx"
+  - "**/*.go"
+  - "**/*.py"
+---
+
+# $PROJECT_NAME - Project-Specific AI Instructions
+
+## Project Info
+
+- **Name**: $PROJECT_NAME
+- **Type**: $PROJECT_TYPE
+- **Created**: $(date '+%Y-%m-%d')
+- **GitHub**: https://github.com/$GITHUB_ORG/$PROJECT_NAME_UPPER
+
+## Technology Stack
+
+(To be filled in during development)
+
+## Key Constraints & Patterns
+
+(Document your team's specific patterns, frameworks, and conventions)
+
+## Critical Rules
+
+(Document project-specific rules that Copilot should follow)
+
+## Directory Structure
+
+See parent README.md for full structure.
+
+## Resources
+
+- Main README: \`../../../README.md\`
+- PMO Guide: See parent PMO documentation
+- Current Status: \`../status/current-context.md\`
+
+EOF
+
+    print_success "Created activity structure"
+}
+
+# Create Copilot project instructions
+create_copilot_instructions() {
+    print_info "Creating Copilot instructions..."
+
+    GITHUB_DIR="$WIP_PARENT/${PROJECT_NAME_LOWER}-wip/.github/instructions"
+    mkdir -p "$GITHUB_DIR"
+
+    cat > "$GITHUB_DIR/project.instructions.md" << EOF
+---
+name: $PROJECT_NAME-patterns
+description: "$PROJECT_NAME project-specific patterns and guidelines"
+applyTo:
+  - "**/*"
+---
+
+# $PROJECT_NAME - Project Patterns & Guidelines
+
+## Quick Reference
+
+- **Project Type**: $PROJECT_TYPE
+- **Created**: $(date '+%Y-%m-%d')
+- **Repository**: https://github.com/$GITHUB_ORG/$PROJECT_NAME_UPPER
+- **Organization**: $GITHUB_ORG
+
+## Workflow
+
+1. **Development**: Work in \`$PROJECT_NAME_LOWER-wip/\` (private)
+2. **Testing**: Run tests before committing
+3. **Publishing**: Use \`./tools/publish-${PROJECT_NAME_LOWER}\` to sync to public
+4. **Distribution**: Public repo at \`$PROJECT_NAME_UPPER/\`
+
+## Key Files
+
+- \`README.md\` - Project overview
+- \`activity/status/current-context.md\` - Session tracking
+- \`activity/vibe/ai-instructions.md\` - Detailed AI guidance
+- \`docs/\` - Technical documentation
+
+## For More Information
+
+See:
+- \`activity/vibe/ai-instructions.md\` - Detailed project-specific guidance
+- Parent PMO documentation
+- GitHub repository README
+
+EOF
+
+    print_success "Created Copilot instructions"
+}
+
+# Create publish script
+create_publish_script() {
+    print_info "Creating publish script..."
+
+    TOOLS_DIR="$WIP_PARENT/${PROJECT_NAME_LOWER}-wip/tools"
+
+    mkdir -p "$TOOLS_DIR"
+
+    # Use template from ~/.PMO if available, otherwise inline
+    TEMPLATE="${PMO_HOME}/docs/publish-script-template.bash"
+    if [[ -f "$TEMPLATE" ]]; then
+        # Copy template and substitute placeholders
+        cat "$TEMPLATE" > "$TOOLS_DIR/publish-${PROJECT_NAME_LOWER}"
+    else
+        # Fallback: generate inline (original hardcoded version)
+        cat > "$TOOLS_DIR/publish-${PROJECT_NAME_LOWER}" << 'PUBSCRIPT'
+#!/bin/bash
+# publish-{PROJECT_NAME_LOWER} - Publish {PROJECT_NAME_UPPER} WIP to public distribution repo
+# Copies ONLY public content from private WIP to public repo
+# Excludes: activity/, internal docs, .env, secrets
+
+set -euo pipefail
+
+# Configuration
+PROJECT_NAME_LOWER="{PROJECT_NAME_LOWER}"
+PROJECT_NAME_UPPER="{PROJECT_NAME_UPPER}"
+
+# Get WIP directory from script location (works anywhere, works for any user)
+# Script is at: {symlink}/{PROJECT_NAME_LOWER}-wip/tools/publish-{PROJECT_NAME_LOWER}
+# WIP repo is: one level up from tools
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WIP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Use environment variables for parent directories, with sensible defaults
+WIP_PARENT="${WIP_PARENT:-$HOME/wip/priv}"
+PUB_PARENT="${PUB_PARENT:-$HOME/wip/pub}"
+
+# Construct paths
+WIP_FULL="$WIP_DIR"
+PUB_DIR="${PUB_PARENT}/{PROJECT_NAME_UPPER}"
+PMO_ROOT="${PMO_ROOT:-$HOME/.PMO}"  # Location of shared operational docs
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+print_error() {
+    echo -e "${RED}✗ $1${NC}" >&2
+}
+
+print_success() {
+    echo -e "${GREEN}✓ $1${NC}"
+}
+
+print_info() {
+    echo -e "${YELLOW}ℹ $1${NC}"
+}
+
+print_step() {
+    echo -e "${BLUE}→ $1${NC}"
+}
+
+# Verify paths exist
+if [[ ! -d "$WIP_FULL" ]]; then
+    print_error "WIP directory not found: $WIP_FULL"
+    exit 1
+fi
+
+if [[ ! -d "$PUB_DIR" ]]; then
+    print_error "Public directory not found: $PUB_DIR"
+    exit 1
+fi
+
+# Verify WIP is clean
+if [[ ! -z $(git -C "$WIP_FULL" status --porcelain) ]]; then
+    print_error "WIP repo has uncommitted changes"
+    echo "Commit all changes before publishing:"
+    git -C "$WIP_FULL" status
+    exit 1
+fi
+
+echo ""
+print_info "Publishing $PROJECT_NAME_UPPER to public distribution repo"
+echo "  WIP source: $WIP_FULL"
+echo "  PUB dest:   $PUB_DIR"
+echo ""
+
+# Step 1: Clean public directory (keep .git)
+print_step "Cleaning public repo directory..."
+cd "$PUB_DIR"
+# Delete all files/dirs except .git and .gitignore
+for item in .??* *; do
+    [[ "$item" == ".git" || "$item" == ".gitignore" || "$item" == "." || "$item" == ".." ]] && continue
+    rm -rf "$item"
+done
+cd - > /dev/null
+print_success "Cleaned public directory"
+
+# Step 2: Copy LICENSE
+print_step "Copying LICENSE..."
+if [[ -f "$WIP_FULL/LICENSE" ]]; then
+    cp "$WIP_FULL/LICENSE" "$PUB_DIR/LICENSE"
+    print_success "LICENSE copied"
+else
+    print_info "No LICENSE found in WIP"
+fi
+
+# Step 3: Copy docs/ folder
+print_step "Copying operational documentation..."
+if [[ -d "$PMO_ROOT/docs" ]]; then
+    cp -r "$PMO_ROOT/docs" "$PUB_DIR/"
+    print_success "docs/ folder copied"
+else
+    print_info "No docs/ folder found at $PMO_ROOT"
+fi
+
+# Step 4: Copy .github/instructions/ (generic for public)
+print_step "Copying generic management instructions..."
+if [[ -d "$WIP_FULL/.github/instructions" ]]; then
+    mkdir -p "$PUB_DIR/.github/instructions"
+    cp "$WIP_FULL/.github/instructions"/* "$PUB_DIR/.github/instructions/" 2>/dev/null || true
+    print_success ".github/instructions/ copied"
+else
+    print_info "No .github/instructions/ folder found"
+fi
+
+# Step 5: Create empty activity folder structure
+print_step "Creating empty activity folder structure..."
+mkdir -p "$PUB_DIR/activity"/{status,sprints,vibe,snapshots,planning}
+touch "$PUB_DIR/activity"/{status,sprints,vibe,snapshots,planning}/.gitkeep
+print_success "activity/ folder structure created (empty for end-users)"
+
+# Step 6: Generate README.md
+print_step "Generating README.md..."
+cat > "$PUB_DIR/README.md" << 'EOFREADME'
+# {PROJECT_NAME_UPPER}
+
+[Project description will go here - customize this file as needed]
+
+## Quick Start
+
+For installation and setup instructions, see [docs/guides/](docs/guides/).
+
+## Structure
+
+```
+├── docs/              # Documentation
+├── activity/          # Activity tracking (created per session)
+├── .github/           # GitHub integration and instructions
+└── README.md          # This file
+```
+
+## Getting Started
+
+1. Clone this repository
+2. Follow the guides in [docs/](docs/)
+3. Start tracking your work in `activity/`
+
+For more information, visit the documentation.
+EOFREADME
+print_success "README.md generated"
+
+# Step 7: Create git commit
+print_step "Creating git commit..."
+cd "$PUB_DIR"
+git add -A
+if git commit -m "Publish: $(date '+%Y-%m-%d %H:%M:%S') - Synced from WIP"; then
+    print_success "Commit created"
+    
+    print_step "Pushing to GitHub..."
+    if git push origin main 2>/dev/null || true; then
+        print_success "Pushed to GitHub"
+    else
+        print_info "Git push skipped (may require authentication)"
+    fi
+else
+    print_info "No changes to commit"
+fi
+
+echo ""
+echo "=========================================="
+print_success "Publish complete!"
+echo "=========================================="
+echo ""
+echo "Public repo contents:"
+echo "  - LICENSE"
+echo "  - README.md (user-facing overview)"
+echo "  - docs/ (operational documentation)"
+echo "  - .github/instructions/ (management guides)"
+echo "  - activity/ (empty structure for end-users)"
+echo ""
+echo "Location: $PUB_DIR"
+echo ""
+
+PUBSCRIPT
+    fi
+
+    # Substitute placeholders (using | as delimiter to avoid issues with special chars)
+    sed -i "s|{PROJECT_NAME_LOWER}|$PROJECT_NAME_LOWER|g" "$TOOLS_DIR/publish-${PROJECT_NAME_LOWER}"
+    sed -i "s|{PROJECT_NAME_UPPER}|$PROJECT_NAME_UPPER|g" "$TOOLS_DIR/publish-${PROJECT_NAME_LOWER}"
+
+    chmod +x "$TOOLS_DIR/publish-${PROJECT_NAME_LOWER}"
+    
+    # Display path with ~ for portability
+    TOOLS_DIR_DISPLAY=$(echo "$TOOLS_DIR" | sed "s|$HOME|~|g")
+    print_success "Created publish script: $TOOLS_DIR_DISPLAY/publish-${PROJECT_NAME_LOWER}"
+}
+
+# Main execution
+main() {
+    parse_args "$@"
+
+    # Handle configuration management
+    if [[ $CONFIGURE == true ]]; then
+        manage_config
+    fi
+
+    # Validate all required inputs
+    validate_inputs
+
+    echo ""
+    print_info "Creating PMO project: $PROJECT_NAME"
+    echo "  Type: $PROJECT_TYPE"
+    echo "  GitHub org: $GITHUB_ORG"
+    echo ""
+
+    create_directories
+    init_git_repos
+    create_symlinks_fn
+    create_github_repos
+    create_activity_structure
+    create_copilot_instructions
+    create_publish_script
+
+    echo ""
+    print_success "PROJECT CREATED SUCCESSFULLY!"
+    echo ""
+    echo "Repository URLs:"
+    echo "  Private WIP:  https://github.com/$GITHUB_ORG/${PROJECT_NAME_LOWER}-wip"
+    echo "  Public:       https://github.com/$GITHUB_ORG/$PROJECT_NAME_UPPER"
+    echo ""
+    echo "Project folder (contains symlinks to both repos):"
+    
+    # Convert paths to use ~ for portability (works for any user)
+    PMO_ROOT_DISPLAY=$(echo "$PMO_ROOT" | sed "s|$HOME|~|g")
+    WIP_PARENT_DISPLAY=$(echo "$WIP_PARENT" | sed "s|$HOME|~|g")
+    PUB_PARENT_DISPLAY=$(echo "$PUB_PARENT" | sed "s|$HOME|~|g")
+    
+    echo "  Location: $PMO_ROOT_DISPLAY/${PROJECT_NAME_UPPER}.prj/"
+    echo ""
+    echo "Local working directories (via symlinks):"
+    echo "  WIP:    $PMO_ROOT_DISPLAY/${PROJECT_NAME_UPPER}.prj/${PROJECT_NAME_LOWER}-wip"
+    echo "  Public: $PMO_ROOT_DISPLAY/${PROJECT_NAME_UPPER}.prj/$PROJECT_NAME_UPPER"
+    echo ""
+    echo "Quick start - Development workflow:"
+    echo "  cd $PMO_ROOT_DISPLAY/${PROJECT_NAME_UPPER}.prj/${PROJECT_NAME_LOWER}-wip"
+    echo "  # Edit your files, then:"
+    echo "  git add ."
+    echo "  git commit -m 'Initial implementation'"
+    echo "  git push origin main"
+    echo ""
+    echo "  # When ready to publish:"
+    echo "  ./tools/publish-${PROJECT_NAME_LOWER}"
+    echo "  cd $PMO_ROOT_DISPLAY/${PROJECT_NAME_UPPER}.prj/$PROJECT_NAME_UPPER"
+    echo "  git push origin main"
+    echo ""
+    echo "Configuration:"
+    echo "  Edit ~/.jcscripts to set defaults for future projects"
+    echo "  Run 'newproject --config' to configure interactively"
+    echo ""
+}
+
+main "$@"

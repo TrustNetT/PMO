@@ -1,0 +1,292 @@
+#!/bin/bash
+# update-pmo - Update PMO installation from repository
+# Checks for newer version and updates if available
+# NO HARDCODED PATHS - derives repo from git config
+
+set -euo pipefail
+
+# Colors (defined early for use throughout script)
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+print_error() {
+    echo -e "${RED}✗ $1${NC}" >&2
+}
+
+print_success() {
+    echo -e "${GREEN}✓ $1${NC}"
+}
+
+print_info() {
+    echo -e "${YELLOW}ℹ $1${NC}"
+}
+
+print_step() {
+    echo -e "${BLUE}→ $1${NC}"
+}
+
+show_help() {
+    cat << 'EOFHELP'
+Usage: ./update-pmo [OPTIONS]
+
+Options:
+  --force            Force update even if version is the same
+  --help             Show this help message
+  --check            Only check for updates, don't install
+  --version          Show local version
+
+Examples:
+  ./update-pmo              # Check and update if newer version available
+  ./update-pmo --check      # Only check for updates
+  ./update-pmo --force      # Force update even if versions match
+EOFHELP
+    exit 0
+}
+
+# Get install directory (where this project is installed)
+# Works with both direct paths and symlinks
+INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Get repository URL from git config (dynamic - no hardcoding!)
+REPO_URL=$(git -C "$INSTALL_DIR" config --get remote.origin.url 2>/dev/null || echo "")
+if [[ -z "$REPO_URL" ]]; then
+    print_error "Unable to determine repository URL. Git repo not found or not configured."
+    exit 1
+fi
+
+# Extract project name from repo URL (works for both https and ssh)
+# Examples: TrustNetT/PMO.git -> PMO, https://github.com/TrustNetT/PMO.git -> PMO
+PROJECT_NAME=$(echo "$REPO_URL" | sed -E 's|.*/([^/]+)(\.git)?$|\1|')
+PROJECT_NAME_LOWER=$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]')
+
+# Convert HTTPS or SSH URL to raw GitHub URL for VERSION/package.json access
+# Examples:
+#   https://github.com/TrustNetT/PMO.git -> https://raw.githubusercontent.com/TrustNetT/PMO/main
+#   git@github.com:TrustNetT/PMO.git -> https://raw.githubusercontent.com/TrustNetT/PMO/main
+if [[ "$REPO_URL" =~ github\.com ]]; then
+    # Extract owner and repo from GitHub URL
+    OWNER=$(echo "$REPO_URL" | sed -E 's|.*/([^/]+)/[^/]+\.git?|\1|')
+    REPO=$(echo "$REPO_URL" | sed -E 's|.*/([^/]+)(\.git)?$|\1|')
+    REPO_RAW_URL="https://raw.githubusercontent.com/${OWNER}/${REPO}/main"
+else
+    print_error "Only GitHub repositories are currently supported for updates."
+    exit 1
+fi
+
+# Parse arguments
+FORCE_UPDATE=false
+CHECK_ONLY=false
+SHOW_VERSION=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --help)
+            show_help
+            ;;
+        --force)
+            FORCE_UPDATE=true
+            shift
+            ;;
+        --check)
+            CHECK_ONLY=true
+            shift
+            ;;
+        --version)
+            SHOW_VERSION=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            show_help
+            ;;
+    esac
+done
+
+# Function to extract version from package.json (for nodejs projects)
+get_json_version() {
+    local file="$1"
+    if [[ -f "$file" ]]; then
+        grep '"version"' "$file" | head -1 | sed 's/.*"version": "\([^"]*\)".*/\1/'
+    else
+        echo "unknown"
+    fi
+}
+
+# Function to extract version from VERSION file (fallback)
+get_file_version() {
+    local file="$1"
+    if [[ -f "$file" ]]; then
+        cat "$file" | tr -dc '0-9.' | head -c 50
+    else
+        echo "unknown"
+    fi
+}
+
+# Function to compare semantic versions
+# Returns: 0 if equal, 1 if local is newer, 2 if remote is newer
+compare_versions() {
+    local local_ver="$1"
+    local remote_ver="$2"
+    
+    if [[ "$local_ver" == "$remote_ver" ]]; then
+        return 0
+    fi
+    
+    # Simple numeric comparison (works for versions like 1.0.0)
+    local local_num=$(echo "$local_ver" | tr -d '.')
+    local remote_num=$(echo "$remote_ver" | tr -d '.')
+    
+    if [[ "$local_num" -lt "$remote_num" ]]; then
+        return 2  # Remote is newer
+    elif [[ "$local_num" -gt "$remote_num" ]]; then
+        return 1  # Local is newer
+    else
+        return 0  # Equal
+    fi
+}
+
+# Verify installation directory exists
+if [[ ! -d "$INSTALL_DIR" ]]; then
+    print_error "Installation directory not found: $INSTALL_DIR"
+    exit 1
+fi
+
+# Get local version
+if [[ -f "$INSTALL_DIR/package.json" ]]; then
+    LOCAL_VERSION=$(get_json_version "$INSTALL_DIR/package.json")
+elif [[ -f "$INSTALL_DIR/VERSION" ]]; then
+    LOCAL_VERSION=$(get_file_version "$INSTALL_DIR/VERSION")
+else
+    LOCAL_VERSION="unknown"
+fi
+
+# Show version and exit if requested
+if [[ "$SHOW_VERSION" == "true" ]]; then
+    echo "$PROJECT_NAME version: $LOCAL_VERSION"
+    exit 0
+fi
+
+echo ""
+print_info "Checking for $PROJECT_NAME updates"
+echo "  Local installation: $INSTALL_DIR"
+echo "  Repository: $REPO_URL"
+echo ""
+
+# Create temporary directory for downloading
+TEMP_DIR=$(mktemp -d)
+trap "rm -rf $TEMP_DIR" EXIT
+
+# Download remote package.json
+print_step "Downloading remote version info..."
+if curl -sSL "$REPO_RAW_URL/package.json" -o "$TEMP_DIR/package.json" 2>/dev/null; then
+    REMOTE_VERSION=$(get_json_version "$TEMP_DIR/package.json")
+    if [[ -z "$REMOTE_VERSION" || "$REMOTE_VERSION" == "unknown" ]]; then
+        # Fallback: try to download VERSION file
+        if curl -sSL "$REPO_RAW_URL/VERSION" -o "$TEMP_DIR/VERSION" 2>/dev/null; then
+            REMOTE_VERSION=$(get_file_version "$TEMP_DIR/VERSION")
+        fi
+    fi
+else
+    # Fallback: try VERSION file
+    if curl -sSL "$REPO_RAW_URL/VERSION" -o "$TEMP_DIR/VERSION" 2>/dev/null; then
+        REMOTE_VERSION=$(get_file_version "$TEMP_DIR/VERSION")
+    else
+        print_error "Unable to check for updates. Please verify internet connection."
+        exit 1
+    fi
+fi
+
+print_success "Version info retrieved"
+echo ""
+echo "  Local version:  $LOCAL_VERSION"
+echo "  Remote version: $REMOTE_VERSION"
+echo ""
+
+# Compare versions
+compare_versions "$LOCAL_VERSION" "$REMOTE_VERSION"
+COMPARISON_RESULT=$?
+
+if [[ $COMPARISON_RESULT -eq 0 ]]; then
+    # Versions are equal
+    if [[ "$FORCE_UPDATE" == "true" ]]; then
+        echo "→ Force update requested - reinstalling..."
+        echo ""
+    else
+        print_success "Your installation is up to date!"
+        echo ""
+        echo "Tip: Use 'update-${PROJECT_NAME_LOWER} --force' to reinstall even when versions match."
+        exit 0
+    fi
+elif [[ $COMPARISON_RESULT -eq 1 ]]; then
+    # Local is newer
+    print_info "Your local version is newer than remote"
+    exit 0
+else
+    # Remote is newer (COMPARISON_RESULT -eq 2)
+    print_info "Updates available!"
+    echo ""
+    
+    if [[ "$CHECK_ONLY" == "true" ]]; then
+        echo "Use './update-${PROJECT_NAME_LOWER}' to install the update."
+        exit 0
+    fi
+    
+    read -p "Do you want to update now? (y/n): " update_confirm
+    if [[ "$update_confirm" != "y" && "$update_confirm" != "Y" ]]; then
+        echo "Update cancelled."
+        exit 0
+    fi
+    echo ""
+fi
+
+# Perform the update
+if [[ -d "$INSTALL_DIR/.git" ]]; then
+    # If it's a git repository, use git pull
+    print_step "Updating via git..."
+    cd "$INSTALL_DIR"
+    
+    # Stash any local changes
+    if [[ ! -z $(git status --porcelain) ]]; then
+        print_info "Stashing local changes..."
+        git stash
+    fi
+    
+    # Pull latest
+    if git pull origin main >/dev/null 2>&1 || git pull >/dev/null 2>&1; then
+        print_success "Repository updated"
+    else
+        print_error "Git pull failed"
+        exit 1
+    fi
+else
+    # Otherwise, download fresh copy
+    print_step "Downloading latest version..."
+    print_info "Please reinstall by cloning fresh from: $REPO_URL"
+    exit 0
+fi
+
+# Run post-update steps if needed
+if [[ -f "$INSTALL_DIR/package.json" ]]; then
+    print_step "Installing dependencies..."
+    cd "$INSTALL_DIR"
+    
+    if command -v pnpm >/dev/null 2>&1; then
+        pnpm install >/dev/null 2>&1 || true
+        print_success "Dependencies updated (pnpm)"
+    elif command -v npm >/dev/null 2>&1; then
+        npm install >/dev/null 2>&1 || true
+        print_success "Dependencies updated (npm)"
+    fi
+fi
+
+echo ""
+echo "=========================================="
+print_success "Update complete!"
+echo "=========================================="
+echo ""
+echo "Version: $REMOTE_VERSION"
+echo "Location: $INSTALL_DIR"
+echo ""
