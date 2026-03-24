@@ -166,6 +166,41 @@ else
     print_success "VS Code is installed"
 fi
 
+# Check if Node.js is installed, install if missing
+if ! command -v node &> /dev/null; then
+    print_info "Node.js not found. Installing..."
+    if [[ -f /etc/os-release ]]; then
+        . /etc/os-release
+        case "$ID" in
+            ubuntu|debian)
+                sudo apt update
+                sudo apt install -y nodejs || { print_error "Failed to install Node.js"; exit 1; }
+                ;;
+            fedora|rhel)
+                sudo dnf install -y nodejs || { print_error "Failed to install Node.js"; exit 1; }
+                ;;
+            arch)
+                sudo pacman -S --noconfirm nodejs || { print_error "Failed to install Node.js"; exit 1; }
+                ;;
+            *)
+                print_error "Unsupported distribution. Please install Node.js manually"
+                exit 1
+                ;;
+        esac
+    else
+        print_error "Cannot detect OS. Please install Node.js manually"
+        exit 1
+    fi
+    if command -v node &> /dev/null; then
+        print_success "Node.js installed"
+    else
+        print_error "Node.js installation failed. Please install manually"
+        exit 1
+    fi
+else
+    print_success "Node.js is installed"
+fi
+
 print_info "Installation Details:"
 echo "  Current directory: $CURRENT_DIR"
 echo "  GitProjects root: $GITPROJECTS_ROOT"
