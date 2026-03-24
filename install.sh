@@ -210,14 +210,33 @@ echo ""
 # Check if PMO is already installed
 if [[ -d "$PMO_DIR" ]]; then
     print_error "PMO is already installed: $PMO_DIR"
-    read -p "Do you want to remove and reinstall? (y/n): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "Installation cancelled."
+    echo ""
+    echo "=========================================="
+    echo "INTERACTIVE PROMPT - YOUR INPUT NEEDED:"
+    echo "=========================================="
+    echo ""
+    echo "Would you like to REMOVE the existing installation"
+    echo "and REINSTALL PMO from GitHub?"
+    echo ""
+    echo "  YES:  Type 'y', 'yes', or 'Y' and press Enter"
+    echo "  NO:   Type 'n', 'no', or 'N' and press Enter"
+    echo ""
+    echo "WAITING FOR YOUR INPUT NOW ↓"
+    echo -n "Your choice [y/n]: "
+    
+    # Read from terminal, not from stdin
+    read -r RESPONSE < /dev/tty || RESPONSE="n"
+    echo ""
+    
+    # Check response - accept variations of yes
+    if [[ $RESPONSE =~ ^[Yy]([Ee][Ss])?$ ]]; then
+        print_step "Removing existing PMO installation at $PMO_DIR..."
+        rm -rf "$PMO_DIR"
+        print_success "Old installation removed - proceeding with fresh install"
+    else
+        print_error "Reinstall cancelled - keeping existing PMO at $PMO_DIR"
         exit 0
     fi
-    print_step "Removing existing PMO installation..."
-    rm -rf "$PMO_DIR"
 fi
 
 # Create GitProjects directory structure
