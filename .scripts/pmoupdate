@@ -30,7 +30,10 @@ print_step() {
 
 show_help() {
     cat << 'EOFHELP'
-Usage: ./update-pmo [OPTIONS]
+Usage: pmoupdate [OPTIONS]
+
+Updates PMO to the latest version from GitHub.
+Also updates this script if a newer version is available.
 
 Options:
   --force            Force update even if version is the same
@@ -39,12 +42,53 @@ Options:
   --version          Show local version
 
 Examples:
-  ./update-pmo              # Check and update if newer version available
-  ./update-pmo --check      # Only check for updates
-  ./update-pmo --force      # Force update even if versions match
+  pmoupdate              # Check and update if newer version available
+  pmoupdate --check      # Only check for updates
+  pmoupdate --force      # Force update even if versions match
 EOFHELP
     exit 0
 }
+
+# Self-update mechanism: Ensure this script is up-to-date before running
+self_update() {
+    local install_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    local repo_url=$(git -C "$install_dir" config --get remote.origin.url 2>/dev/null || echo "")
+    
+    if [[ -z "$repo_url" ]]; then
+        return 0  # Can't self-update without git repo info
+    fi
+    
+    # Extract owner/repo from GitHub URL
+    if [[ "$repo_url" =~ github\.com ]]; then
+        local owner=$(echo "$repo_url" | sed -E 's|.*/([^/]+)/[^/]+\.git?|\1|')
+        local repo=$(basename "$repo_url" .git)
+        local script_url="https://raw.githubusercontent.com/${owner}/${repo}/main/.scripts/pmoupdate"
+        
+        # Download the remote version to temp
+        local temp_script=$(mktemp)
+        if timeout 10 curl -sSL "$script_url" -o "$temp_script" 2>/dev/null; then
+            # Compare checksums to see if script has changed
+            local local_checksum=$(md5sum "${BASH_SOURCE[0]}" | awk '{print $1}')
+            local remote_checksum=$(md5sum "$temp_script" | awk '{print $1}')
+            
+            if [[ "$local_checksum" != "$remote_checksum" ]]; then
+                # Script is outdated, update it and re-exec
+                print_step "Updating pmoupdate script..."
+                cp "$temp_script" "${BASH_SOURCE[0]}"
+                chmod +x "${BASH_SOURCE[0]}"
+                print_success "Script updated. Re-running with latest version..."
+                echo ""
+                rm -f "$temp_script"
+                # Re-execute with the same arguments
+                exec "${BASH_SOURCE[0]}" "$@"
+            fi
+            rm -f "$temp_script"
+        fi
+    fi
+}
+
+# Run self-update check first
+self_update "$@"
 
 # Get install directory (where this project is installed)
 # Works with both direct paths and symlinks
@@ -59,7 +103,7 @@ fi
 
 # Extract project name from repo URL (works for both https and ssh)
 # Examples: TrustNetT/PMO.git -> PMO, https://github.com/TrustNetT/PMO.git -> PMO
-PROJECT_NAME=$(echo "$REPO_URL" | sed -E 's|.*/([^/]+)(\.git)?$|\1|')
+PROJECT_NAME=$(basename "$REPO_URL" .git)
 PROJECT_NAME_LOWER=$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]')
 
 # Convert HTTPS or SSH URL to raw GitHub URL for VERSION/package.json access
@@ -69,7 +113,7 @@ PROJECT_NAME_LOWER=$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]')
 if [[ "$REPO_URL" =~ github\.com ]]; then
     # Extract owner and repo from GitHub URL
     OWNER=$(echo "$REPO_URL" | sed -E 's|.*/([^/]+)/[^/]+\.git?|\1|')
-    REPO=$(echo "$REPO_URL" | sed -E 's|.*/([^/]+)(\.git)?$|\1|')
+    REPO=$(basename "$REPO_URL" .git)
     REPO_RAW_URL="https://raw.githubusercontent.com/${OWNER}/${REPO}/main"
 else
     print_error "Only GitHub repositories are currently supported for updates."
