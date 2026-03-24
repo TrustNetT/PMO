@@ -130,9 +130,9 @@ if ! command -v code &> /dev/null; then
                 sudo apt update
                 sudo apt install -y wget gpg
                 wget -qO- https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/ms_vscode.gpg
-                echo "deb [arch=amd64 signed-by=/usr/share/keyrings/ms_vscode.gpg] https://packages.microsoft.com/repos/code stable main" | sudo tee /etc/apt/sources.list.d/vscode.list
+                echo "deb [arch=amd64 signed-by=/usr/share/keyrings/ms_vscode.gpg] https://packages.microsoft.com/repos/code stable main" | sudo tee /etc/apt/sources.list.d/vscode.list > /dev/null
                 sudo apt update
-                sudo apt install -y code
+                sudo apt install -y code || { print_error "Failed to install VS Code"; exit 1; }
                 ;;
             fedora|rhel)
                 sudo rpm --import https://packages.microsoft.com/keys/microsoft.asc
@@ -142,24 +142,24 @@ baseurl=https://packages.microsoft.com/yumrepos/vscode
 enabled=1
 gpgcheck=1
 gpgkey=https://packages.microsoft.com/keys/microsoft.asc' | sudo tee /etc/yum.repos.d/vscode.repo > /dev/null
-                sudo dnf install -y code
+                sudo dnf install -y code || { print_error "Failed to install VS Code"; exit 1; }
                 ;;
             arch)
-                sudo pacman -S --noconfirm code
+                sudo pacman -S --noconfirm code || { print_error "Failed to install VS Code"; exit 1; }
                 ;;
             *)
                 print_error "Unsupported distribution. Please install VS Code manually from https://code.visualstudio.com"
                 exit 1
                 ;;
         esac
-        if command -v code &> /dev/null; then
-            print_success "VS Code installed"
-        else
-            print_error "Failed to install VS Code"
-            exit 1
-        fi
     else
         print_error "Cannot detect OS. Please install VS Code manually from https://code.visualstudio.com"
+        exit 1
+    fi
+    if command -v code &> /dev/null; then
+        print_success "VS Code installed"
+    else
+        print_error "VS Code installation failed. Please install manually from https://code.visualstudio.com"
         exit 1
     fi
 else
