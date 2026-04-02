@@ -1,5 +1,7 @@
 # PMO (Project Management Office)
 
+![PMO Logo](docs/PMO.png)
+
 A **Project Management Office (PMO)** is a centralized documentation and coordination hub for managing software projects. This PMO implementation provides:
 
 - **Architecture & Patterns**: Documented best practices for project structure, deployment, and workflow
@@ -99,6 +101,12 @@ PMO/
 ### Core Concepts & Workflow
 
 - **[Project Workflow & Repository Structure](docs/PROJECT_WORKFLOW.md)** — Understand the dual-repository pattern (WIP private, public distribution), how to organize project components, and the publish workflow
+
+### Model-Specific Configurations
+
+- **[LLM Model Configurations](.github/model-configs/README.md)** — Support for Claude, GPT, Gemini, and other AI models
+  - **[Claude Configuration](.github/model-configs/claude/README.md)** — Optimized setup for Claude Haiku 4.5 & 3.5 Sonnet
+  - **[Template for Other Models](.github/model-configs/other-models/README.md)** — Step-by-step guide to add new LLM configurations
 
 ### Using pmoproject
 
