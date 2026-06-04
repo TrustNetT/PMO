@@ -1,161 +1,134 @@
-# PMO - Project Management Office Framework
+# PMO (Project Management Office)
 
-**A flexible, model-agnostic Project Management Office for coordinating software projects with GitHub Copilot and LLM integration.**
+![PMO Logo](docs/PMO.png)
 
----
+A **Project Management Office (PMO)** is a centralized documentation and coordination hub for managing software projects. This PMO implementation provides:
 
-## What is PMO?
-
-The PMO framework provides:
-
-- **Dual-repository architecture** — Separate WIP (development) and public (distribution) repos
-- **Copilot integration** — Intelligent coding agent guidance optimized for your workflow
-- **Model flexibility** — Support for multiple LLM providers (Claude, GPT, Gemini, etc.)
-- **Project coordination** — Multi-project tracking, documentation, and CI/CD patterns
-- **Community-ready** — Shareable configurations and templates for teams
+- **Architecture & Patterns**: Documented best practices for project structure, deployment, and workflow
+- **Activity Tracking**: Structured folders for session notes, sprints, and project milestones
+- **Dual-Repository Workflow**: WIP (private development) and Public (distribution) repo pattern
+- **Project Scaffolding**: Templates and tools for creating and managing new projects
+- **AI Agent Guidance**: Instructions for automating development workflows
 
 ## Quick Start
 
-For installation and setup instructions, see [docs/guides/](docs/guides/).
+### Installation
 
-## Configuration
+If you already have PMO installed, navigate to the install directory. To set up a new instance:
 
-### Base Configuration (All Models)
-
-See [.github/instructions/](https://github.com/jcgarcia/PMO/tree/main/.github/instructions/) for core PMO guidance that works with any Copilot-compatible model.
-
-### Model-Specific Optimization
-
-PMO supports optimized configurations for different LLM providers:
-
-**Available Configurations**:
-- **claude/** — Optimized for Claude Haiku 4.5, Claude 3.5 Sonnet
-- **gpt/** — Optimized for GPT-4, GPT-4 Turbo (coming soon)
-- **gemini/** — Optimized for Google Gemini (coming soon)
-- **other-models/** — Template for any LLM
-
-**Installation**:
-
-1. Clone or download this PMO repository
-2. Choose your preferred model configuration
-3. Copy model-specific files to your local `.claude/`, `.gpt/`, etc.
-4. See [.github/model-configs/README.md](https://github.com/jcgarcia/PMO/tree/main/.github/model-configs/) for detailed setup
-
-**Example** (Claude):
 ```bash
-# Copy Claude configuration to your home directory
-cp -r .github/model-configs/claude/* ~/.claude/
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/TrustNetT/PMO/main/install.sh)"
 ```
+
+This creates: `~/GitProjects/PMO/` with full structure and documentation.
+
+### Available Tools
+
+After installation, PMO scripts are automatically added to your PATH:
+
+- **`pmoproject`** — Create new projects with proper directory structure and configurations
+  - Usage: `pmoproject -n ProjectName -t nodejs -o OrgName`
+  - See `pmoproject --help` for all options
+
+- **`pmoupdate`** — Check for and update your PMO installation
+  - Usage: `pmoupdate --check` (check without installing)
+  - Usage: `pmoupdate` (check and install if newer)
+  - See `pmoupdate --help` for all options
+
+### Basic Workflow
+
+1. **Create a new project**: `pmoproject -n MyProject -t nodejs -o MyOrg`
+2. **Explore documentation**: See the [Documentation Index](#documentation-index) below
+3. **Set up your activity tracking**: Create dated folders in `activity/sprints/` for your work
+4. **Track progress**: Use activity templates and session notes
+
+### Checking for Updates
+
+After installation, you can check if a newer version of PMO is available:
+
+```bash
+# From any directory - checks if GitHub version is newer
+curl -s https://raw.githubusercontent.com/TrustNetT/PMO/main/VERSION | \
+  grep -v "^$" > /tmp/remote_version && \
+  echo "Local: $(cat ~/GitProjects/PMO/VERSION)" && \
+  echo "GitHub: $(cat /tmp/remote_version)"
+```
+
+**Current version**: See `VERSION` file (or `cat VERSION` from PMO root)
+
+### Updating PMO
+
+If a newer version is available on GitHub:
+
+```bash
+# Navigate to PMO directory
+cd ~/GitProjects/PMO
+
+# Check for updates
+git fetch origin main
+git log --oneline -5  # See recent changes
+
+# Update only when safe (always review first)
+git pull origin main
+
+# Verify the update
+cat VERSION            # Confirm new version
+```
+
+**⚠️ Note**: The update mechanism follows GitHub's `main` branch. Always review changes before pulling to avoid conflicts with your local modifications.
 
 ## Directory Structure
 
-```
+```text
+PMO/
+├── docs/                 # Comprehensive documentation
+│   ├── PROJECT_WORKFLOW.md # How to work with projects
+│   └── guides/          # How-to guides and setup instructions
+├── activity/            # Your work tracking (created per session)
+│   ├── status/         # Current status snapshots
+│   ├── sprints/        # Sprint and session documentation
+│   ├── vibe/           # Project guidance and patterns
+│   ├── snapshots/      # Historical backups
+│   └── planning/       # Future planning
 ├── .github/
-│   ├── instructions/              # Core PMO guidance (all models)
-│   └── model-configs/             # Model-specific optimizations
-│       ├── claude/                # Claude configuration
-│       ├── gpt/                   # GPT configuration (template)
-│       ├── other-models/          # Generic template
-│       └── README.md              # How to use model configs
-├── docs/
-│   ├── CRITICAL_WORKFLOW_PATTERN.md
-│   ├── DUAL_REPO_SCRIPTS.md
-│   └── guides/                    # Installation & setup guides
-├── activity/                      # Activity tracking (per session)
-└── README.md                      # This file
+│   └── instructions/   # GitHub integration guides and workflow rules
+├── install.sh          # Installation script
+└── README.md           # This file
 ```
 
-## Key Features
+## Documentation Index
 
-### 1. Model-Agnostic Base Rules
+### Core Concepts & Workflow
 
-The PMO foundation works with **any Copilot-compatible LLM**:
-- Architecture principles
-- Workflow patterns
-- Safety rules and constraints
-- Project structure guidelines
+- **[Project Workflow & Repository Structure](docs/PROJECT_WORKFLOW.md)** — Understand the dual-repository pattern (WIP private, public distribution), how to organize project components, and the publish workflow
 
-See: `~/.github/copilot-instructions.md`
+### Model-Specific Configurations
 
-### 2. Model-Specific Optimizations
+- **[LLM Model Configurations](.github/model-configs/README.md)** — Support for Claude, GPT, Gemini, and other AI models
+  - **[Claude Configuration](.github/model-configs/claude/README.md)** — Optimized setup for Claude Haiku 4.5 & 3.5 Sonnet
+  - **[Template for Other Models](.github/model-configs/other-models/README.md)** — Step-by-step guide to add new LLM configurations
 
-Enhance base rules with specific model strengths:
-- **Claude**: Extended thinking, long-context processing, structured output
-- **GPT**: Function calling, vision capabilities, faster inference
-- **Gemini**: Multimodal processing, real-time integration (when available)
+### Using pmoproject
 
-See: `~/.github/model-configs/{model}/`
+Create new projects using the `pmoproject` command:
 
-### 3. Flexible Switching
+```bash
+pmoproject -n ProjectName -t nodejs -o OrgName
+```
 
-Switch between models without breaking your workflow:
-- Base rules remain constant
-- Model-specific configs are optional
-- Easy to add new models
+Run `pmoproject --help` for all available options and project types.
 
-### 4. Community Templates
+### Activity Tracking
 
-Share your optimizations and best practices:
-- Submit model configurations to the PMO repo
-- Contribute templates for new LLMs
-- Help others optimize for their preferred model
+Use these structures to organize your work:
 
-## Documentation
+- **`activity/status/current-context.md`** — Track current session state and blockers
+- **`activity/sprints/YYYY-MM-DD_description.md`** — Document completed work, findings, and next steps
+- **`activity/vibe/ai-instructions.md`** — Project-specific guidance for AI agents or future developers
+- **`activity/snapshots/`** — Backup old versions before major refactoring
 
-### Getting Started
-- [Installation Guide](docs/guides/)
-- [Dual Repository Workflow](docs/DUAL_REPO_SCRIPTS.md)
-- [Critical Workflow Pattern](docs/CRITICAL_WORKFLOW_PATTERN.md)
+## Getting Help
 
-### Model Configuration
-- [How to Use Model-Specific Configs](https://github.com/jcgarcia/PMO/blob/main/.github/model-configs/README.md)
-- Claude Configuration Setup (see `.github/model-configs/claude/`)
-- Other Models Template (see `.github/model-configs/other-models/`)
-
-### Advanced
-- [PMO Architecture Overview](https://github.com/jcgarcia/PMO/wiki/Architecture) (Wiki)
-- [Customization Guide](https://github.com/jcgarcia/PMO/wiki/Customization)
-- [Contributing Model Configs](https://github.com/jcgarcia/PMO/wiki/Contributing)
-
-## Getting Started
-
-1. **Clone this repository**:
-   ```bash
-   git clone https://github.com/jcgarcia/PMO.git
-   cd PMO
-   ```
-
-2. **Choose a configuration**:
-   - Review `~/.github/` for base instructions (all models)
-   - Select your LLM from `.github/model-configs/`
-
-3. **Install to your environment**:
-   - For Claude: `cp -r .github/model-configs/claude/* ~/.claude/`
-   - For other models: Adapt using template in `.github/model-configs/other-models/`
-
-4. **Start tracking your work**:
-   - Create session in `activity/` directory
-   - Follow the workflow patterns in documentation
-
-## Version
-
-Current Version: See [VERSION](VERSION) file
-
-## License
-
-[License information - customize as needed]
-
-## Contributing
-
-Contributions welcome! Please see [CONTRIBUTING.md](https://github.com/jcgarcia/PMO/blob/main/CONTRIBUTING.md) for guidelines.
-
-## Support
-
-- **Documentation**: See `docs/` folder
-- **Issues**: GitHub Issues tracker
-- **Discussions**: GitHub Discussions
-
----
-
-**Last Updated**: April 2, 2026  
-**Framework**: PMO v2.2 with Model-Specific Configuration Support
+- Check the [Documentation Index](#documentation-index) for guides matching your task
+- Review [.github/instructions/](.github/instructions/) for workflow rules and GitHub integration
+- Create activity notes in `activity/sprints/` to track your progress and document solutions
