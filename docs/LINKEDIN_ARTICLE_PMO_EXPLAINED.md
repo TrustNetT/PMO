@@ -246,7 +246,8 @@ Added user authentication to the API
 - [ ] Added protected endpoints
 - [ ] Created login/logout flows
 - [ ] Added tests
-
+EOF
+```
 ### **3. Use AI Agents Effectively**
 
 The PMO instructions are designed for AI assistants. When bringing an agent into your workflow:
@@ -323,7 +324,7 @@ The PMO is designed to evolve with your organization:
 
 ---
 
-## **𝘗𝘩𝘪𝘭𝘰𝘴𝘰𝘱𝘩𝘺: �𝘰𝘧𝘵𝘸𝘢𝘳𝘦 𝘈𝘤𝘪𝘦𝘷𝘦𝘴 𝘦𝘯𝘨𝘪𝘯𝘦𝘱𝘩𝘪𝘭𝘰𝘴𝘰𝘱𝘩𝘺**
+## **𝘗𝘩𝘪𝘭𝘰𝘴𝘰𝘱𝘩𝘺: S𝘰𝘧𝘵𝘸𝘢𝘳𝘦 𝘈𝘤h𝘪𝘦𝘷𝘦𝘴 𝘦𝘯𝘨𝘪𝘯𝘦𝘱𝘩𝘪𝘭𝘰𝘴𝘰𝘱𝘩𝘺**
 
 After 10 years in software development, I've learned something important:
 
